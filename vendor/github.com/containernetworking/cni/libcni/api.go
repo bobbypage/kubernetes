@@ -15,6 +15,7 @@
 package libcni
 
 import (
+	"os"
 	"strings"
 
 	"github.com/containernetworking/cni/pkg/invoke"
@@ -68,6 +69,6 @@ func (c *CNIConfig) args(action string, rt *RuntimeConf) *invoke.Args {
 		NetNS:       rt.NetNS,
 		PluginArgs:  rt.Args,
 		IfName:      rt.IfName,
-		Path:        strings.Join(c.Path, ":"),
+		Path:        strings.Join(c.Path, string(os.PathListSeparator)),
 	}
 }
