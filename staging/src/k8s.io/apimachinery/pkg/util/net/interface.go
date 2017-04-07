@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 
 	"strings"
 
@@ -166,24 +167,26 @@ func chooseHostInterfaceNativeGo() (net.IP, error) {
 	var ip net.IP
 	for i = range intfs {
 		if flagsSet(intfs[i].Flags, net.FlagUp) && flagsClear(intfs[i].Flags, net.FlagLoopback|net.FlagPointToPoint) {
-			addrs, err := intfs[i].Addrs()
-			if err != nil {
-				return nil, err
-			}
-			if len(addrs) > 0 {
-				for _, addr := range addrs {
-					if addrIP, _, err := net.ParseCIDR(addr.String()); err == nil {
-						if addrIP.To4() != nil {
-							ip = addrIP.To4()
-							if !ip.IsLinkLocalMulticast() && !ip.IsLinkLocalUnicast() {
-								break
+			if runtime.GOOS != "windows" || intfs[i].Name == "vEthernet (HNSTransparent)" || strings.HasPrefix(intfs[i].Name, "Ethernet") {
+				addrs, err := intfs[i].Addrs()
+				if err != nil {
+					return nil, err
+				}
+				if len(addrs) > 0 {
+					for _, addr := range addrs {
+						if addrIP, _, err := net.ParseCIDR(addr.String()); err == nil {
+							if addrIP.To4() != nil {
+								ip = addrIP.To4()
+								if !ip.IsLinkLocalMulticast() && !ip.IsLinkLocalUnicast() {
+									break
+								}
 							}
 						}
 					}
-				}
-				if ip != nil {
-					// This interface should suffice.
-					break
+					if ip != nil {
+						// This interface should suffice.
+						break
+					}
 				}
 			}
 		}
