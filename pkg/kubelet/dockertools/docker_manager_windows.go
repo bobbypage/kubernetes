@@ -92,6 +92,7 @@ func (dm *DockerManager) FinalizeInfraContainerNetwork(containerID kubecontainer
 		fmt.Sprintf("netsh interface ipv4 delete route 0.0.0.0/0 $ifIndex %s;", podGW) +
 		fmt.Sprintf("netsh interface ipv4 add route %s $ifIndex %s;", vipCidr, podGW)
 	if DNS != "" {
+		pscmd += fmt.Sprintf("Get-NetAdapter | foreach { netsh interface ipv4 set dns $_.ifIndex static none };")
 		pscmd += fmt.Sprintf("netsh interface ipv4 set dns $ifIndex static %s;", DNS)
 	}
 
