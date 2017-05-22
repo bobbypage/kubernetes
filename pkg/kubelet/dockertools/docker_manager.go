@@ -1107,9 +1107,9 @@ func (dm *DockerManager) pluginDisablesDockerNetworking() bool {
 	return dm.network.PluginName() == "cni" || dm.network.PluginName() == "kubenet"
 }
 
-// newDockerVersion returns a semantically versioned docker version value
+// newDockerVersion returns a semantically versioned docker version value, the docker version is no longer semantic but this converts it into one
 func newDockerVersion(version string) (*utilversion.Version, error) {
-	return utilversion.ParseSemantic(version)
+	return utilversion.ParseGeneric(version)
 }
 
 // apiVersion implements kubecontainer.Version interface by implementing
