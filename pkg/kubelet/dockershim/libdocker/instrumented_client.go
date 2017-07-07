@@ -20,6 +20,7 @@ import (
 	"time"
 
 	dockertypes "github.com/docker/engine-api/types"
+        dockernetworktypes "github.com/docker/engine-api/types/network"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 )
 
@@ -103,6 +104,15 @@ func (in instrumentedInterface) RemoveContainer(id string, opts dockertypes.Cont
 	defer recordOperation(operation, time.Now())
 
 	err := in.client.RemoveContainer(id, opts)
+	recordError(operation, err)
+	return err
+}
+
+func (in instrumentedInterface) ConnectNetwork(id string, containerID string, config *dockernetworktypes.EndpointSettings) error {
+	const operation = "connect_network"
+	defer recordOperation(operation, time.Now())
+
+	err := in.client.ConnectNetwork(id, containerID, config)
 	recordError(operation, err)
 	return err
 }
