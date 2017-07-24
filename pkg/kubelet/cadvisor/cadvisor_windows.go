@@ -19,6 +19,7 @@ limitations under the License.
 package cadvisor
 
 import (
+	"github.com/golang/glog"
 	"github.com/google/cadvisor/events"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
@@ -35,6 +36,7 @@ func New(address string, port uint, runtime string, rootPath string) (Interface,
 }
 
 func (cu *cadvisorClient) Start() error {
+	glog.Infof("c_advisor start()")
 	return nil
 }
 
@@ -43,14 +45,27 @@ func (cu *cadvisorClient) DockerContainer(name string, req *cadvisorapi.Containe
 }
 
 func (cu *cadvisorClient) ContainerInfo(name string, req *cadvisorapi.ContainerInfoRequest) (*cadvisorapi.ContainerInfo, error) {
+	glog.Infof("c_advisor containerInfo")
+
 	return &cadvisorapi.ContainerInfo{}, nil
 }
 
 func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.RequestOptions) (map[string]cadvisorapiv2.ContainerInfo, error) {
-	return make(map[string]cadvisorapiv2.ContainerInfo), nil
+	GetWinHelper().Start()
+	glog.Info("c_advisor going to call win helper")
+	glog.Infof("c_advisor containerInfo V2")
+
+	m := make(map[string]cadvisorapiv2.ContainerInfo)
+	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	// cpuStats := cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: 50}}
+	stats[0] = &cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}}
+	m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
+	return m, nil
 }
 
 func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.ContainerInfoRequest) (map[string]*cadvisorapi.ContainerInfo, error) {
+	glog.Infof("c_advisor subcontainerInfo")
+
 	return nil, nil
 }
 
@@ -63,10 +78,14 @@ func (cu *cadvisorClient) VersionInfo() (*cadvisorapi.VersionInfo, error) {
 }
 
 func (cu *cadvisorClient) ImagesFsInfo() (cadvisorapiv2.FsInfo, error) {
+	glog.Infof("c_advisor imagesFSInfo")
+
 	return cadvisorapiv2.FsInfo{}, nil
 }
 
 func (cu *cadvisorClient) RootFsInfo() (cadvisorapiv2.FsInfo, error) {
+	glog.Infof("c_advisor rootFSInfo")
+
 	return cadvisorapiv2.FsInfo{}, nil
 }
 
