@@ -391,6 +391,9 @@ func (sb *summaryBuilder) containerInfoV2ToNetworkStats(name string, info *cadvi
 }
 
 func (sb *summaryBuilder) containerInfoV2ToUserDefinedMetrics(info *cadvisorapiv2.ContainerInfo) []stats.UserDefinedMetric {
+	if !info.Spec.HasCustomMetrics {
+		return nil
+	}
 	type specVal struct {
 		ref     stats.UserDefinedMetricDescriptor
 		valType cadvisorapiv1.DataType

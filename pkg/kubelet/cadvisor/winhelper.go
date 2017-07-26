@@ -49,6 +49,7 @@ type winhelper struct {
 
 var instance *winhelper
 var once sync.Once
+var dockerClient *dockerapi.Client
 
 func (ws *winhelper) Start() {
 	glog.Info("winhelper start() ")
@@ -60,7 +61,8 @@ func GetWinHelper() *winhelper {
 		glog.Info("make winhelper singleton")
 		instance = &winhelper{DockerStats: make(map[string]Stats)}
 		instance.startNodeCPUMonitoring()
-		instance.startDockerStatsMonitoring()
+		dockerClient, _ = dockerapi.NewEnvClient()
+		//instance.startDockerStatsMonitoring()
 	})
 	glog.Info("returning instance %v", instance)
 	return instance
@@ -83,7 +85,7 @@ func (ws *winhelper) startNodeCPUMonitoring() {
 			cpuCores := runtime.NumCPU()
 
 			ws.usageCoreNanoSeconds += uint64((m.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
-			glog.Infof("cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.usageCoreNanoSeconds)
+			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.usageCoreNanoSeconds)
 
 			ws.mu.Unlock()
 		}
@@ -95,6 +97,35 @@ func (ws *winhelper) GetUsageCoreNanoSeconds() uint64 {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	return ws.usageCoreNanoSeconds
+}
+
+func (ws *winhelper) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
+	m := make(map[string]cadvisorapiv2.ContainerInfo)
+
+	// root (node) container
+	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	stats[0] = &cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: ws.GetUsageCoreNanoSeconds()}}}
+	m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
+
+	//cli, err := dockerapi.NewEnvClient()
+	//if err != nil {
+	//panic(err)
+
+	//}
+	containers, err := dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
+
+	if err != nil {
+		panic(err)
+	}
+
+	glog.Info("looping through containers")
+	for _, container := range containers {
+		m[container.ID] = ws.createContainerInfo(&container)
+		glog.Info("added container info for container", container)
+	}
+
+	glog.Info("end winContainerInfos", m)
+	return m
 }
 
 func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {
@@ -111,17 +142,54 @@ func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvi
 		Memory:           cadvisorapiv2.MemorySpec{},
 		HasCustomMetrics: false,
 		CustomMetrics:    []cadvisorapi.MetricSpec{},
-		HasNetwork:       true,
-		HasFilesystem:    true,
-		HasDiskIo:        true,
+		HasNetwork:       false,
+		HasFilesystem:    false,
+		HasDiskIo:        false,
 		Image:            container.Image,
 	}
-
 	stats := make([]*cadvisorapiv2.ContainerStats, 1)
-	stats.append(
-		&cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}})
 
-	return cadvisorapiv2.ContainerInfo{Spec: spec}
+	stats = append(stats, ws.createContainerStats(container))
+
+	//stats.append(
+	//	&cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}})
+
+	return cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}
+}
+
+func (ws *winhelper) createContainerStats(container *dockertypes.Container) *cadvisorapiv2.ContainerStats {
+
+	dockerStats := ws.getStatsForContainer(container.ID)
+	stats := cadvisorapiv2.ContainerStats{
+		Timestamp: time.Unix(container.Created, 0),
+		Cpu:       &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: dockerStats.CPUStats.CPUUsage.TotalUsage}},
+		CpuInst:   &cadvisorapiv2.CpuInstStats{},
+		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet},
+		// ... diskio, memory, network, etc...
+	}
+	return &stats
+}
+
+func (ws *winhelper) getStatsForContainer(containerId string) Stats {
+	//cli, err := dockerapi.NewEnvClient()
+	//if err != nil {
+	//panic(err)
+	//}
+	response, err := dockerClient.ContainerStats(context.Background(), containerId, false)
+	defer response.Close()
+	if err != nil {
+		panic(err)
+	}
+	dec := json.NewDecoder(response)
+
+	var stats Stats
+	err = dec.Decode(&stats)
+
+	if err != nil {
+		panic("cant parse json")
+	}
+
+	return stats
 }
 
 func (ws *winhelper) startDockerStatsMonitoring() {
