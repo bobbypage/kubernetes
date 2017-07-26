@@ -142,7 +142,7 @@ func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandb
 
 	// Windows specific workaround to configure networking post container creation.
 	if goruntime.GOOS == "windows" {
-		m.finalizeInfraContainerNetwork(containerID, podSandboxConfig)
+		m.finalizeInfraContainerNetwork(containerID, podSandboxConfig, pod)
 	}
 
 	// Step 4: execute the post start hook.
@@ -162,12 +162,13 @@ func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandb
 	return "", nil
 }
 
-func (m *kubeGenericRuntimeManager) finalizeInfraContainerNetwork(containerID string, config *runtimeapi.PodSandboxConfig) {
+func (m *kubeGenericRuntimeManager) finalizeInfraContainerNetwork(containerID string, config *runtimeapi.PodSandboxConfig, pod *v1.Pod) {
 	if goruntime.GOOS == "windows" {
 		// Windows specific workaround to configure networking post container creation.
+                useClusterFirstPolicy := ((pod.Spec.DNSPolicy == v1.DNSClusterFirst && !kubecontainer.IsHostNetworkPod(pod)) || pod.Spec.DNSPolicy == v1.DNSClusterFirstWithHostNet)
 		dns := ""
 		if dnsConfig := config.GetDnsConfig(); dnsConfig != nil {
-			if len(dnsConfig.Servers) > 0 {
+			if useClusterFirstPolicy && len(dnsConfig.Servers) > 0 {
 				dns = dnsConfig.Servers[0]
 			}
 		}
