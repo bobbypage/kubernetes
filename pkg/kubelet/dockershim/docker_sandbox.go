@@ -117,8 +117,6 @@ func (ds *dockerService) RunPodSandbox(config *runtimeapi.PodSandboxConfig) (id 
 	}
 
 	// Windows specific workaround to configure networking post container creation.
-	// Uncomment below once we have network namespace sharing is available
-	//if container.Name == PodInfraContainerName {
 	ds.configureInfraContainerNetworkConfig(createResp.ID)
 
 	// Step 4: Start the sandbox container.
@@ -167,17 +165,6 @@ func (ds *dockerService) RunPodSandbox(config *runtimeapi.PodSandboxConfig) (id 
 		}
 	}
 
-	// Windows specific workaround to configure networking post container creation.
-	dns := ""
-	if dnsConfig := config.GetDnsConfig(); dnsConfig != nil {
-		if len(dnsConfig.Servers) > 0 {
-			dns = dnsConfig.Servers[0]
-		}
-	}
-
-	// Uncomment below once we have network namespace sharing is available
-	//if container.Name == PodInfraContainerName {
-	ds.FinalizeInfraContainerNetwork(createResp.ID, dns)
 	return createResp.ID, err
 }
 
