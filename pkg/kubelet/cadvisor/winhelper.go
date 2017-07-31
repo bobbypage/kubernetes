@@ -40,11 +40,15 @@ import (
 
 //CPUQuery for perf counter
 const CPUQuery = "\\Processor(_Total)\\% Processor Time"
+const MemoryPrivWorkingSetQuery = "\\Process(_Total)\\Working Set - Private"
+const MemoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
 
 type winhelper struct {
-	DockerStats          map[string]Stats
-	usageCoreNanoSeconds uint64
-	mu                   sync.Mutex
+	DockerStats               map[string]Stats
+	cpuUsageCoreNanoSeconds   uint64
+	memoryPrivWorkingSetBytes uint64
+	memoryCommitedBytes       uint64
+	mu                        sync.Mutex
 }
 
 var instance *winhelper
@@ -60,7 +64,7 @@ func GetWinHelper() *winhelper {
 	once.Do(func() {
 		glog.Info("make winhelper singleton")
 		instance = &winhelper{DockerStats: make(map[string]Stats)}
-		instance.startNodeCPUMonitoring()
+		go instance.startNodeMonitoring()
 		dockerClient, _ = dockerapi.NewEnvClient()
 		//instance.startDockerStatsMonitoring()
 	})
@@ -68,44 +72,66 @@ func GetWinHelper() *winhelper {
 	return instance
 }
 
-func (ws *winhelper) startNodeCPUMonitoring() {
+func (ws *winhelper) startNodeMonitoring() {
 	glog.Info("startNodeCPUMonitoring()")
 
-	go func() {
-		c, err := readPerformanceCounter(CPUQuery, 1)
+	cpuChan, err := readPerformanceCounter(CPUQuery, 1)
 
-		if err != nil {
-			glog.Infof("Unable to read perf counter")
-		}
+	if err != nil {
+		glog.Infof("Unable to read perf counter, cpu")
+	}
 
-		for m := range c {
+	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery, 1)
+
+	if err != nil {
+		glog.Infof("Unable to read perf counter memory")
+	}
+
+	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery, 1)
+
+	if err != nil {
+		glog.Infof("Unable to read perf counter memoryCommited")
+	}
+
+	for {
+		select {
+		case c := <-cpuChan:
 			ws.mu.Lock()
-			glog.Infof("CPU perf data %v", m)
-
 			cpuCores := runtime.NumCPU()
-
-			ws.usageCoreNanoSeconds += uint64((m.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
-			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.usageCoreNanoSeconds)
-
+			ws.cpuUsageCoreNanoSeconds += uint64((c.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
+			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.cpuUsageCoreNanoSeconds)
+			ws.mu.Unlock()
+		case mWorkingSet := <-memWorkingSetChan:
+			ws.mu.Lock()
+			ws.memoryPrivWorkingSetBytes = uint64(mWorkingSet.ValueFloat)
+			ws.mu.Unlock()
+		case mCommitedBytes := <-memCommittedBytesChan:
+			ws.mu.Lock()
+			ws.memoryCommitedBytes = uint64(mCommitedBytes.ValueFloat)
 			ws.mu.Unlock()
 		}
-	}()
-	glog.Info("Exit startNodeCPUMonitoring()")
-}
+	}
 
-func (ws *winhelper) GetUsageCoreNanoSeconds() uint64 {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
-	return ws.usageCoreNanoSeconds
+	//for m := range cpuChan {
+	//ws.mu.Lock()
+	//glog.Infof("CPU perf data %v", m)
+
+	//cpuCores := runtime.NumCPU()
+
+	//ws.usageCoreNanoSeconds += uint64((m.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
+	//glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.usageCoreNanoSeconds)
+
+	//ws.mu.Unlock()
+	//}
+	glog.Info("Exit startNodeCPUMonitoring()")
 }
 
 func (ws *winhelper) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
 	m := make(map[string]cadvisorapiv2.ContainerInfo)
 
 	// root (node) container
-	stats := make([]*cadvisorapiv2.ContainerStats, 1)
-	stats[0] = &cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: ws.GetUsageCoreNanoSeconds()}}}
-	m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
+	//stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	m["/"] = ws.createRootContainerInfo()
 
 	//cli, err := dockerapi.NewEnvClient()
 	//if err != nil {
@@ -127,7 +153,28 @@ func (ws *winhelper) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo 
 	glog.Info("end winContainerInfos", m)
 	return m
 }
+func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
+	//Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.CommitPeak},
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
 
+	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	stats[0] = &cadvisorapiv2.ContainerStats{
+		Cpu: &cadvisorapi.CpuStats{
+			Usage: cadvisorapi.CpuUsage{
+				Total: ws.cpuUsageCoreNanoSeconds,
+			},
+		},
+		Memory: &cadvisorapi.MemoryStats{
+			WorkingSet: ws.memoryPrivWorkingSetBytes,
+			Usage:      ws.memoryCommitedBytes,
+		},
+	}
+
+	rootInfo := cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true, HasMemory: true}, Stats: stats}
+
+	return rootInfo
+}
 func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {
 
 	spec := cadvisorapiv2.ContainerSpec{
@@ -142,7 +189,7 @@ func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvi
 		Memory:           cadvisorapiv2.MemorySpec{},
 		HasCustomMetrics: false,
 		CustomMetrics:    []cadvisorapi.MetricSpec{},
-		HasNetwork:       false,
+		HasNetwork:       true,
 		HasFilesystem:    false,
 		HasDiskIo:        false,
 		Image:            container.Image,
@@ -158,19 +205,39 @@ func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvi
 }
 
 func (ws *winhelper) createContainerStats(container *dockertypes.Container) *cadvisorapiv2.ContainerStats {
+	dockerStatsJson := ws.getStatsForContainer(container.ID)
 
-	dockerStats := ws.getStatsForContainer(container.ID)
+	dockerStats := dockerStatsJson.Stats
+	// create network stats
+
+	networkInterfaces := make([]cadvisorapi.InterfaceStats, len(dockerStatsJson.Networks))
+	for networkName, networkStats := range dockerStatsJson.Networks {
+
+		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
+			Name:      networkName,
+			RxBytes:   networkStats.RxBytes,
+			RxPackets: networkStats.RxPackets,
+			RxErrors:  networkStats.RxErrors,
+			RxDropped: networkStats.RxDropped,
+			TxBytes:   networkStats.TxBytes,
+			TxPackets: networkStats.TxPackets,
+			TxErrors:  networkStats.TxErrors,
+			TxDropped: networkStats.TxDropped,
+		})
+	}
+
 	stats := cadvisorapiv2.ContainerStats{
 		Timestamp: time.Unix(container.Created, 0),
 		Cpu:       &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: dockerStats.CPUStats.CPUUsage.TotalUsage}},
 		CpuInst:   &cadvisorapiv2.CpuInstStats{},
-		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet},
-		// ... diskio, memory, network, etc...
+		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.Commit},
+		Network:   &cadvisorapiv2.NetworkStats{Interfaces: networkInterfaces},
+		// TODO: ... diskio, memory, network, etc...
 	}
 	return &stats
 }
 
-func (ws *winhelper) getStatsForContainer(containerId string) Stats {
+func (ws *winhelper) getStatsForContainer(containerId string) StatsJSON {
 	//cli, err := dockerapi.NewEnvClient()
 	//if err != nil {
 	//panic(err)
@@ -182,7 +249,7 @@ func (ws *winhelper) getStatsForContainer(containerId string) Stats {
 	}
 	dec := json.NewDecoder(response)
 
-	var stats Stats
+	var stats StatsJSON
 	err = dec.Decode(&stats)
 
 	if err != nil {
@@ -313,12 +380,6 @@ func readPerformanceCounter(counter string, sleepInterval int) (chan Metric, err
 							if len(s) > 0 {
 								metricName = fmt.Sprintf("%s.%s", normalizePerfCounterMetricName(counter), normalizePerfCounterMetricName(s))
 							}
-
-							//metric = append(metric, Metric{
-							//metricName,
-							//fmt.Sprintf("%v", c.FmtValue.DoubleValue),
-							//c.FmtValue.DoubleValue,
-							//time.Now().Unix()})
 
 							metric = Metric{
 								metricName,
