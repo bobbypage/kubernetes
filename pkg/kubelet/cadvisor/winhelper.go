@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
 	"github.com/golang/glog"
@@ -169,10 +170,24 @@ func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
 			WorkingSet: ws.memoryPrivWorkingSetBytes,
 			Usage:      ws.memoryCommitedBytes,
 		},
+		//"memory": {
+		//"time": "2017-07-31T23:17:57Z",
+		//"usageBytes": 162115584,
+		//"workingSetBytes": 86888448,
+		//"rssBytes": 60649472,
+		//"pageFaults": 1919023,
+		//"majorPageFaults": 726
+
+		//Memory: &cadvisorapi.MemoryStats{
+		//WorkingSet: 86888448,
+		//Usage:      162115584,
+		//RSS:        60649472,
+		//},
 	}
 
-	rootInfo := cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true, HasMemory: true}, Stats: stats}
+	rootInfo := cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true, HasMemory: true, Memory: cadvisorapiv2.MemorySpec{Limit: 3.2e+10}}, Stats: stats}
 
+	glog.Infof("created root container", spew.Sdump(rootInfo))
 	return rootInfo
 }
 func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {

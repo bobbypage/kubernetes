@@ -61,6 +61,7 @@ func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.Req
 	//stats[0] = &cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}}
 	//m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
 	//return m, nil
+	//return make(map[string]cadvisorapiv2.ContainerInfo), nil
 
 	return GetWinHelper().WinContainerInfos(), nil
 }
@@ -72,7 +73,9 @@ func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.Contain
 }
 
 func (cu *cadvisorClient) MachineInfo() (*cadvisorapi.MachineInfo, error) {
-	return &cadvisorapi.MachineInfo{}, nil
+	return &cadvisorapi.MachineInfo{
+		MemoryCapacity: 32000000000, // 32 GB
+	}, nil
 }
 
 func (cu *cadvisorClient) VersionInfo() (*cadvisorapi.VersionInfo, error) {
