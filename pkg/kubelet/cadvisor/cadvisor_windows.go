@@ -26,13 +26,15 @@ import (
 )
 
 type cadvisorClient struct {
+	winhelperManager *winhelper
 }
 
 var _ Interface = new(cadvisorClient)
 
 // New creates a cAdvisor and exports its API on the specified port if port > 0.
 func New(address string, port uint, runtime string, rootPath string) (Interface, error) {
-	return &cadvisorClient{}, nil
+	glog.Infof("CREATING A NEW CADVISOR CLIENT")
+	return &cadvisorClient{winhelperManager: NewWinHelper()}, nil
 }
 
 func (cu *cadvisorClient) Start() error {
@@ -51,7 +53,8 @@ func (cu *cadvisorClient) ContainerInfo(name string, req *cadvisorapi.ContainerI
 }
 
 func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.RequestOptions) (map[string]cadvisorapiv2.ContainerInfo, error) {
-	GetWinHelper().Start()
+
+	//GetWinHelper().Start()
 	//glog.Info("c_advisor going to call win helper")
 	//glog.Infof("c_advisor containerInfo V2")
 
@@ -62,8 +65,7 @@ func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.Req
 	//m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
 	//return m, nil
 	//return make(map[string]cadvisorapiv2.ContainerInfo), nil
-
-	return GetWinHelper().WinContainerInfos(), nil
+	return cu.winhelperManager.WinContainerInfos(), nil
 }
 
 func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.ContainerInfoRequest) (map[string]*cadvisorapi.ContainerInfo, error) {
