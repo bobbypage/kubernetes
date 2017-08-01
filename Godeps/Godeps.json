@@ -1804,8 +1804,8 @@
 			"Rev": "9577782540c1398b710ddae1b86268ba03a19b0c"
 		},
 		{
-			"ImportPath": "github.com/lxn/win",
-			"Rev": "1ea027c10d94f177fbf6f0a232a72d5f6faebde4"
+			"ImportPath": "github.com/bobbypage/win",
+			"Rev": "bf37f791d5c899c44ac72505b8a0c3536c6a3518"
 		},
 		{
 			"ImportPath": "github.com/magiconair/properties",
