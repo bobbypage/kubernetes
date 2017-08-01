@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cadvisor
+package winstats
 
 import (
 	//"bytes"
@@ -44,7 +44,7 @@ const CPUQuery = "\\Processor(_Total)\\% Processor Time"
 const MemoryPrivWorkingSetQuery = "\\Process(_Total)\\Working Set - Private"
 const MemoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
 
-type winhelper struct {
+type Client struct {
 	dockerClient                *dockerapi.Client
 	DockerStats                 map[string]Stats
 	cpuUsageCoreNanoSeconds     uint64
@@ -54,44 +54,44 @@ type winhelper struct {
 	memoryPhysicalCapacityBytes uint64
 }
 
-func NewWinHelper() *winhelper {
+func NewClient() *Client {
 	glog.Infof("Creating NewWinHelper")
 
-	helper := new(winhelper)
-	helper.DockerStats = make(map[string]Stats)
+	client := new(Client)
+	client.DockerStats = make(map[string]Stats)
 
 	dockerClient, _ := dockerapi.NewEnvClient()
-	helper.dockerClient = dockerClient
+	client.dockerClient = dockerClient
 
 	// create physical memory
 	var physicalMemoryKiloBytes uint64
 	ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
-	glog.Infof("done making windows syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
+	glog.Infof("done making windoc.syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
 
 	if !ok {
 		glog.Infof("Error reading physical memory")
 	}
 
-	helper.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
+	client.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
 
-	go helper.startNodeMonitoring()
-	return helper
+	go client.startNodeMonitoring()
+	return client
 }
 
-func (ws *winhelper) startNodeMonitoring() {
+func (c *Client) startNodeMonitoring() {
 
 	//var physicalMemoryKiloBytes uint64
 	//ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
-	//glog.Infof("done making windows syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
+	//glog.Infof("done making windoc.syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
 
 	//if !ok {
 	//glog.Infof("Error reading physical memory")
 	//}
 
-	//ws.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
-	glog.Infof("now memoryPhysicalBytes is %v", ws.memoryPhysicalCapacityBytes)
+	//c.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
+	glog.Infof("now memoryPhysicalBytes is %v", c.memoryPhysicalCapacityBytes)
 
-	//ok := win.GetPhysicallyInstalledSystemMemory(&ws.memoryPhysicalCapacityKiloBytes)
+	//ok := win.GetPhysicallyInstalledSystemMemory(&c.memoryPhysicalCapacityKiloBytes)
 	//if !ok {
 	//glog.Infof("Error reading physical memory")
 	//}
@@ -118,33 +118,33 @@ func (ws *winhelper) startNodeMonitoring() {
 
 	for {
 		select {
-		case c := <-cpuChan:
-			ws.mu.Lock()
+		case cpu := <-cpuChan:
+			c.mu.Lock()
 			cpuCores := runtime.NumCPU()
-			ws.cpuUsageCoreNanoSeconds += uint64((c.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
-			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, ws.cpuUsageCoreNanoSeconds)
-			ws.mu.Unlock()
+			c.cpuUsageCoreNanoSeconds += uint64((cpu.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
+			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, c.cpuUsageCoreNanoSeconds)
+			c.mu.Unlock()
 		case mWorkingSet := <-memWorkingSetChan:
-			ws.mu.Lock()
-			ws.memoryPrivWorkingSetBytes = uint64(mWorkingSet.ValueFloat)
-			ws.mu.Unlock()
+			c.mu.Lock()
+			c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.ValueFloat)
+			c.mu.Unlock()
 		case mCommitedBytes := <-memCommittedBytesChan:
-			ws.mu.Lock()
-			ws.memoryCommitedBytes = uint64(mCommitedBytes.ValueFloat)
-			ws.mu.Unlock()
+			c.mu.Lock()
+			c.memoryCommitedBytes = uint64(mCommitedBytes.ValueFloat)
+			c.mu.Unlock()
 		}
 	}
 
 	glog.Info("Exit startNodeCPUMonitoring()")
 }
 
-func (ws *winhelper) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
+func (c *Client) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
 	m := make(map[string]cadvisorapiv2.ContainerInfo)
 
 	// root (node) container
-	m["/"] = ws.createRootContainerInfo()
+	m["/"] = c.createRootContainerInfo()
 
-	containers, err := ws.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
+	containers, err := c.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
 
 	if err != nil {
 		panic(err)
@@ -152,27 +152,27 @@ func (ws *winhelper) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo 
 
 	glog.Info("looping through containers")
 	for _, container := range containers {
-		m[container.ID] = ws.createContainerInfo(&container)
+		m[container.ID] = c.createContainerInfo(&container)
 		glog.Info("added container info for container", container)
 	}
 
 	glog.Info("end winContainerInfos", m)
 	return m
 }
-func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
+func (c *Client) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	stats := make([]*cadvisorapiv2.ContainerStats, 1)
 	stats[0] = &cadvisorapiv2.ContainerStats{
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
-				Total: ws.cpuUsageCoreNanoSeconds,
+				Total: c.cpuUsageCoreNanoSeconds,
 			},
 		},
 		Memory: &cadvisorapi.MemoryStats{
-			WorkingSet: ws.memoryPrivWorkingSetBytes,
-			Usage:      ws.memoryCommitedBytes,
+			WorkingSet: c.memoryPrivWorkingSetBytes,
+			Usage:      c.memoryCommitedBytes,
 		},
 		//"memory": {
 		//"time": "2017-07-31T23:17:57Z",
@@ -190,7 +190,7 @@ func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
 	}
 	//var res uint64
 	//ret := win.GetPhysicallyInstalledSystemMemory(&res)
-	//glog.Infof("made windows syscall, ret=%v, res=%v", ret, res)
+	//glog.Infof("made windoc.syscall, ret=%v, res=%v", ret, res)
 
 	rootInfo := cadvisorapiv2.ContainerInfo{
 		Spec: cadvisorapiv2.ContainerSpec{
@@ -199,9 +199,9 @@ func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
 			HasCpu:    true,
 			HasMemory: true,
 			Memory: cadvisorapiv2.MemorySpec{
-				//Limit: ws.memoryPhysicalCapacityKiloBytes * 1000, // convert to kilobytes to bytes
+				//Limit: c.memoryPhysicalCapacityKiloBytes * 1000, // convert to kilobytes to bytes
 				//Limit: 3.2e+10,
-				Limit: ws.memoryPhysicalCapacityBytes,
+				Limit: c.memoryPhysicalCapacityBytes,
 			},
 		},
 		Stats: stats,
@@ -210,7 +210,7 @@ func (ws *winhelper) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
 	glog.Infof("created root container", spew.Sdump(rootInfo))
 	return rootInfo
 }
-func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {
+func (c *Client) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {
 
 	spec := cadvisorapiv2.ContainerSpec{
 		CreationTime:     time.Unix(container.Created, 0),
@@ -231,7 +231,7 @@ func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvi
 	}
 	stats := make([]*cadvisorapiv2.ContainerStats, 1)
 
-	stats = append(stats, ws.createContainerStats(container))
+	stats = append(stats, c.createContainerStats(container))
 
 	//stats.append(
 	//	&cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}})
@@ -239,8 +239,8 @@ func (ws *winhelper) createContainerInfo(container *dockertypes.Container) cadvi
 	return cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}
 }
 
-func (ws *winhelper) createContainerStats(container *dockertypes.Container) *cadvisorapiv2.ContainerStats {
-	dockerStatsJson := ws.getStatsForContainer(container.ID)
+func (c *Client) createContainerStats(container *dockertypes.Container) *cadvisorapiv2.ContainerStats {
+	dockerStatsJson := c.getStatsForContainer(container.ID)
 
 	dockerStats := dockerStatsJson.Stats
 	// create network stats
@@ -272,8 +272,8 @@ func (ws *winhelper) createContainerStats(container *dockertypes.Container) *cad
 	return &stats
 }
 
-func (ws *winhelper) getStatsForContainer(containerId string) StatsJSON {
-	response, err := ws.dockerClient.ContainerStats(context.Background(), containerId, false)
+func (c *Client) getStatsForContainer(containerId string) StatsJSON {
+	response, err := c.dockerClient.ContainerStats(context.Background(), containerId, false)
 	defer response.Close()
 
 	if err != nil {
@@ -291,7 +291,7 @@ func (ws *winhelper) getStatsForContainer(containerId string) StatsJSON {
 	return stats
 }
 
-func (ws *winhelper) startDockerStatsMonitoring() {
+func (c *Client) startDockerStatsMonitoring() {
 	//https://github.com/robertojrojas/cross-platform-communication-using-gRPC/blob/cd12ab4ec2614475f6803e75cc6d604f0adf3035/examples/nodejs-to-go/docker/service/server.go
 
 	go func() {
@@ -323,7 +323,7 @@ func (ws *winhelper) startDockerStatsMonitoring() {
 					panic("cant parse json")
 				}
 
-				ws.DockerStats[container.ID] = stats
+				c.DockerStats[container.ID] = stats
 				glog.Infof("Got stats for container %v", stats)
 				time.Sleep(5 * time.Second)
 			}
@@ -436,7 +436,7 @@ func normalizePerfCounterMetricName(rawName string) (normalizedName string) {
 
 	normalizedName = rawName
 
-	// thanks to Microsoft Windows,
+	// thanks to Microsoft Windoc.
 	// we have performance counter metric like `\\Processor(_Total)\\% Processor Time`
 	// which we need to convert to `processor_total.processor_time` see perfcounter_test.go for more beautiful examples
 	r := strings.NewReplacer(

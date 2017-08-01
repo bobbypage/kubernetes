@@ -23,10 +23,11 @@ import (
 	"github.com/google/cadvisor/events"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
+	"k8s.io/kubernetes/pkg/kubelet/winstats"
 )
 
 type cadvisorClient struct {
-	winhelperManager *winhelper
+	winStatsClient *winstats.Client
 }
 
 var _ Interface = new(cadvisorClient)
@@ -34,7 +35,7 @@ var _ Interface = new(cadvisorClient)
 // New creates a cAdvisor and exports its API on the specified port if port > 0.
 func New(address string, port uint, runtime string, rootPath string) (Interface, error) {
 	glog.Infof("CREATING A NEW CADVISOR CLIENT")
-	return &cadvisorClient{winhelperManager: NewWinHelper()}, nil
+	return &cadvisorClient{winStatsClient: winstats.NewClient()}, nil
 }
 
 func (cu *cadvisorClient) Start() error {
@@ -65,7 +66,7 @@ func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.Req
 	//m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
 	//return m, nil
 	//return make(map[string]cadvisorapiv2.ContainerInfo), nil
-	return cu.winhelperManager.WinContainerInfos(), nil
+	return cu.winStatsClient.WinContainerInfos(), nil
 }
 
 func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.ContainerInfoRequest) (map[string]*cadvisorapi.ContainerInfo, error) {
