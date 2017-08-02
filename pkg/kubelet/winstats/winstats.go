@@ -1,5 +1,4 @@
 // +build windows
-
 /*
 Copyright 2015 The Kubernetes Authors.
 
@@ -42,7 +41,7 @@ type Client struct {
 	memoryPhysicalCapacityBytes uint64
 }
 
-func NewClient() *Client {
+func NewClient() (*Client, error) {
 	glog.Infof("Creating NewWinHelper")
 
 	client := new(Client)
@@ -62,18 +61,21 @@ func NewClient() *Client {
 	memory, err := getPhysicallyInstalledSystemMemoryBytes()
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	client.memoryPhysicalCapacityBytes = memory
 
 	// start node monitoring (reading perf counters)
 
-	go client.startNodeMonitoring()
-	return client
+	errChan := make(chan error, 1)
+	go client.startNodeMonitoring(errChan)
+
+	err = <-errChan
+	return client, err
 }
 
-func (c *Client) startNodeMonitoring() {
+func (c *Client) startNodeMonitoring(errChan chan error) {
 
 	//var physicalMemoryKiloBytes uint64
 	//ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
@@ -96,20 +98,26 @@ func (c *Client) startNodeMonitoring() {
 	cpuChan, err := readPerformanceCounter(CPUQuery, 1)
 
 	if err != nil {
-		glog.Infof("Unable to read perf counter, cpu")
+		errChan <- err
+		return
 	}
 
 	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery, 1)
 
 	if err != nil {
-		glog.Infof("Unable to read perf counter memory")
+		errChan <- err
+		return
 	}
 
 	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery, 1)
 
 	if err != nil {
-		glog.Infof("Unable to read perf counter memoryCommited")
+		errChan <- err
+		return
 	}
+
+	// no error, send nil over channel
+	errChan <- nil
 
 	for {
 		select {
