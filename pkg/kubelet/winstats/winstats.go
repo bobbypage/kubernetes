@@ -119,28 +119,34 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 	}
 }
 
-func (c *Client) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
+func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	m := make(map[string]cadvisorapiv2.ContainerInfo)
 
 	// root (node) container
-	m["/"] = c.createRootContainerInfo()
+	m["/"] = *c.createRootContainerInfo()
 
 	containers, err := c.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	glog.Info("looping through containers")
 	for _, container := range containers {
-		m[container.ID] = c.createContainerInfo(&container)
-		glog.Info("added container info for container", container)
+		containerInfo, err := c.createContainerInfo(&container)
+
+		if err != nil {
+			return nil, err
+		}
+
+		m[container.ID] = *containerInfo
+		//glog.Info("added container info for container", container)
 	}
 
 	glog.Info("end winContainerInfos", m)
-	return m
+	return m, nil
 }
-func (c *Client) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
+func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -189,9 +195,9 @@ func (c *Client) createRootContainerInfo() cadvisorapiv2.ContainerInfo {
 	}
 
 	glog.Infof("created root container", spew.Sdump(rootInfo))
-	return rootInfo
+	return &rootInfo
 }
-func (c *Client) createContainerInfo(container *dockertypes.Container) cadvisorapiv2.ContainerInfo {
+func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadvisorapiv2.ContainerInfo, error) {
 
 	spec := cadvisorapiv2.ContainerSpec{
 		CreationTime:     time.Unix(container.Created, 0),
@@ -210,18 +216,24 @@ func (c *Client) createContainerInfo(container *dockertypes.Container) cadvisora
 		HasDiskIo:        false,
 		Image:            container.Image,
 	}
+
 	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	containerStats, err := c.createContainerStats(container)
 
-	stats = append(stats, c.createContainerStats(container))
+	if err != nil {
+		return nil, err
+	}
 
-	//stats.append(
-	//	&cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}})
-
-	return cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}
+	stats = append(stats, containerStats)
+	return &cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}, nil
 }
 
-func (c *Client) createContainerStats(container *dockertypes.Container) *cadvisorapiv2.ContainerStats {
-	dockerStatsJson := c.getStatsForContainer(container.ID)
+func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvisorapiv2.ContainerStats, error) {
+	dockerStatsJson, err := c.getStatsForContainer(container.ID)
+
+	if err != nil {
+		return nil, err
+	}
 
 	dockerStats := dockerStatsJson.Stats
 	// create network stats
@@ -250,15 +262,15 @@ func (c *Client) createContainerStats(container *dockertypes.Container) *cadviso
 		Network:   &cadvisorapiv2.NetworkStats{Interfaces: networkInterfaces},
 		// TODO: ... diskio, memory, network, etc...
 	}
-	return &stats
+	return &stats, nil
 }
 
-func (c *Client) getStatsForContainer(containerId string) StatsJSON {
+func (c *Client) getStatsForContainer(containerId string) (*StatsJSON, error) {
 	response, err := c.dockerClient.ContainerStats(context.Background(), containerId, false)
 	defer response.Close()
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	dec := json.NewDecoder(response)
 
@@ -266,8 +278,8 @@ func (c *Client) getStatsForContainer(containerId string) StatsJSON {
 	err = dec.Decode(&stats)
 
 	if err != nil {
-		panic("cant parse json")
+		return nil, err
 	}
 
-	return stats
+	return &stats, nil
 }

@@ -57,19 +57,7 @@ func (cu *cadvisorClient) ContainerInfo(name string, req *cadvisorapi.ContainerI
 }
 
 func (cu *cadvisorClient) ContainerInfoV2(name string, options cadvisorapiv2.RequestOptions) (map[string]cadvisorapiv2.ContainerInfo, error) {
-
-	//GetWinHelper().Start()
-	//glog.Info("c_advisor going to call win helper")
-	//glog.Infof("c_advisor containerInfo V2")
-
-	//m := make(map[string]cadvisorapiv2.ContainerInfo)
-	//stats := make([]*cadvisorapiv2.ContainerStats, 1)
-	//// cpuStats := cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: 50}}
-	//stats[0] = &cadvisorapiv2.ContainerStats{Cpu: &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: GetWinHelper().GetUsageCoreNanoSeconds()}}}
-	//m["/"] = cadvisorapiv2.ContainerInfo{Spec: cadvisorapiv2.ContainerSpec{Namespace: "testNameSpace", Image: "davidImage", HasCpu: true}, Stats: stats}
-	//return m, nil
-	//return make(map[string]cadvisorapiv2.ContainerInfo), nil
-	return cu.winStatsClient.WinContainerInfos(), nil
+	return cu.winStatsClient.WinContainerInfos()
 }
 
 func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.ContainerInfoRequest) (map[string]*cadvisorapi.ContainerInfo, error) {
