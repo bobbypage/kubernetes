@@ -21,10 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bobbypage/win"
-	"github.com/davecgh/go-spew/spew"
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
-	"github.com/golang/glog"
+	//"github.com/golang/glog"
+	"errors"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
 	"runtime"
@@ -42,8 +42,6 @@ type Client struct {
 }
 
 func NewClient() (*Client, error) {
-	glog.Infof("Creating NewWinHelper")
-
 	client := new(Client)
 
 	dockerClient, _ := dockerapi.NewEnvClient()
@@ -52,10 +50,9 @@ func NewClient() (*Client, error) {
 	// create physical memory
 	var physicalMemoryKiloBytes uint64
 	ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
-	glog.Infof("done making windoc.syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
 
 	if !ok {
-		glog.Infof("Error reading physical memory")
+		return nil, errors.New("Error reading physical memory")
 	}
 
 	memory, err := getPhysicallyInstalledSystemMemoryBytes()
@@ -67,7 +64,6 @@ func NewClient() (*Client, error) {
 	client.memoryPhysicalCapacityBytes = memory
 
 	// start node monitoring (reading perf counters)
-
 	errChan := make(chan error, 1)
 	go client.startNodeMonitoring(errChan)
 
@@ -120,10 +116,10 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 }
 
 func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
-	m := make(map[string]cadvisorapiv2.ContainerInfo)
+	infos := make(map[string]cadvisorapiv2.ContainerInfo)
 
 	// root (node) container
-	m["/"] = *c.createRootContainerInfo()
+	infos["/"] = *c.createRootContainerInfo()
 
 	containers, err := c.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
 
@@ -131,7 +127,6 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 		return nil, err
 	}
 
-	glog.Info("looping through containers")
 	for _, container := range containers {
 		containerInfo, err := c.createContainerInfo(&container)
 
@@ -139,12 +134,10 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 			return nil, err
 		}
 
-		m[container.ID] = *containerInfo
-		//glog.Info("added container info for container", container)
+		infos[container.ID] = *containerInfo
 	}
 
-	glog.Info("end winContainerInfos", m)
-	return m, nil
+	return infos, nil
 }
 func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	c.mu.Lock()
@@ -161,40 +154,20 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 			WorkingSet: c.memoryPrivWorkingSetBytes,
 			Usage:      c.memoryCommitedBytes,
 		},
-		//"memory": {
-		//"time": "2017-07-31T23:17:57Z",
-		//"usageBytes": 162115584,
-		//"workingSetBytes": 86888448,
-		//"rssBytes": 60649472,
-		//"pageFaults": 1919023,
-		//"majorPageFaults": 726
-
-		//Memory: &cadvisorapi.MemoryStats{
-		//WorkingSet: 86888448,
-		//Usage:      162115584,
-		//RSS:        60649472,
-		//},
 	}
-	//var res uint64
-	//ret := win.GetPhysicallyInstalledSystemMemory(&res)
-	//glog.Infof("made windoc.syscall, ret=%v, res=%v", ret, res)
 
 	rootInfo := cadvisorapiv2.ContainerInfo{
 		Spec: cadvisorapiv2.ContainerSpec{
-			Namespace: "testNameSpace",
-			Image:     "davidImage",
 			HasCpu:    true,
 			HasMemory: true,
 			Memory: cadvisorapiv2.MemorySpec{
-				//Limit: c.memoryPhysicalCapacityKiloBytes * 1000, // convert to kilobytes to bytes
-				//Limit: 3.2e+10,
 				Limit: c.memoryPhysicalCapacityBytes,
 			},
 		},
 		Stats: stats,
 	}
 
-	glog.Infof("created root container", spew.Sdump(rootInfo))
+	//glog.Infof("created root container", spew.Sdump(rootInfo))
 	return &rootInfo
 }
 func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadvisorapiv2.ContainerInfo, error) {
@@ -237,7 +210,6 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 
 	dockerStats := dockerStatsJson.Stats
 	// create network stats
-
 	networkInterfaces := make([]cadvisorapi.InterfaceStats, len(dockerStatsJson.Networks))
 	for networkName, networkStats := range dockerStatsJson.Networks {
 
