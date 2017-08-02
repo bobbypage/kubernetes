@@ -19,11 +19,8 @@ limitations under the License.
 package winstats
 
 import (
-	//"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"github.com/bobbypage/win"
 	"github.com/davecgh/go-spew/spew"
 	dockerapi "github.com/docker/engine-api/client"
@@ -31,22 +28,13 @@ import (
 	"github.com/golang/glog"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
-	"regexp"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
-	"unsafe"
 )
-
-//CPUQuery for perf counter
-const CPUQuery = "\\Processor(_Total)\\% Processor Time"
-const MemoryPrivWorkingSetQuery = "\\Process(_Total)\\Working Set - Private"
-const MemoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
 
 type Client struct {
 	dockerClient                *dockerapi.Client
-	DockerStats                 map[string]Stats
 	cpuUsageCoreNanoSeconds     uint64
 	memoryPrivWorkingSetBytes   uint64
 	memoryCommitedBytes         uint64
@@ -58,7 +46,6 @@ func NewClient() *Client {
 	glog.Infof("Creating NewWinHelper")
 
 	client := new(Client)
-	client.DockerStats = make(map[string]Stats)
 
 	dockerClient, _ := dockerapi.NewEnvClient()
 	client.dockerClient = dockerClient
@@ -72,7 +59,15 @@ func NewClient() *Client {
 		glog.Infof("Error reading physical memory")
 	}
 
-	client.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
+	memory, err := getPhysicallyInstalledSystemMemoryBytes()
+
+	if err != nil {
+		panic(err)
+	}
+
+	client.memoryPhysicalCapacityBytes = memory
+
+	// start node monitoring (reading perf counters)
 
 	go client.startNodeMonitoring()
 	return client
@@ -121,16 +116,16 @@ func (c *Client) startNodeMonitoring() {
 		case cpu := <-cpuChan:
 			c.mu.Lock()
 			cpuCores := runtime.NumCPU()
-			c.cpuUsageCoreNanoSeconds += uint64((cpu.ValueFloat / 100.0) * float64(cpuCores) * 1000000000)
+			c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
 			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, c.cpuUsageCoreNanoSeconds)
 			c.mu.Unlock()
 		case mWorkingSet := <-memWorkingSetChan:
 			c.mu.Lock()
-			c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.ValueFloat)
+			c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
 			c.mu.Unlock()
 		case mCommitedBytes := <-memCommittedBytesChan:
 			c.mu.Lock()
-			c.memoryCommitedBytes = uint64(mCommitedBytes.ValueFloat)
+			c.memoryCommitedBytes = uint64(mCommitedBytes.Value)
 			c.mu.Unlock()
 		}
 	}
@@ -289,182 +284,4 @@ func (c *Client) getStatsForContainer(containerId string) StatsJSON {
 	}
 
 	return stats
-}
-
-func (c *Client) startDockerStatsMonitoring() {
-	//https://github.com/robertojrojas/cross-platform-communication-using-gRPC/blob/cd12ab4ec2614475f6803e75cc6d604f0adf3035/examples/nodejs-to-go/docker/service/server.go
-
-	go func() {
-		for {
-			glog.Infof("starting docker stats monitoring")
-			cli, err := dockerapi.NewEnvClient()
-			if err != nil {
-				panic(err)
-
-			}
-			containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
-
-			glog.Info("looping through containers")
-			for _, container := range containers {
-
-				glog.Infof("container: %+v", container)
-				response, err := cli.ContainerStats(context.Background(), container.ID, false)
-
-				if err != nil {
-					panic("can't call docker stats")
-				}
-
-				dec := json.NewDecoder(response)
-
-				var stats Stats
-				err = dec.Decode(&stats)
-
-				if err != nil {
-					panic("cant parse json")
-				}
-
-				c.DockerStats[container.ID] = stats
-				glog.Infof("Got stats for container %v", stats)
-				time.Sleep(5 * time.Second)
-			}
-		}
-	}()
-}
-
-// Metric collected from a counter
-type Metric struct {
-	Name       string
-	Value      string
-	ValueFloat float64
-	Timestamp  int64
-}
-
-// NewMetric construct a Metric struct
-func NewMetric(name, value string, valueFloat float64, timestamp int64) Metric {
-	return Metric{
-		Name:       name,
-		Value:      value,
-		ValueFloat: valueFloat,
-		Timestamp:  timestamp,
-	}
-}
-
-func (metric Metric) String() string {
-	return fmt.Sprintf(
-		"%s | %s | %s",
-		metric.Name,
-		metric.Value,
-		time.Unix(metric.Timestamp, 0).Format("2006-01-02 15:04:05"),
-	)
-}
-
-func readPerformanceCounter(counter string, sleepInterval int) (chan Metric, error) {
-
-	var queryHandle win.PDH_HQUERY
-	var counterHandle win.PDH_HCOUNTER
-
-	ret := win.PdhOpenQuery(0, 0, &queryHandle)
-	if ret != win.ERROR_SUCCESS {
-		return nil, errors.New("Unable to open query through DLL call")
-	}
-
-	// test path
-	ret = win.PdhValidatePath(counter)
-	if ret == win.PDH_CSTATUS_BAD_COUNTERNAME {
-		return nil, errors.New("Unable to fetch counter (this is unexpected)")
-	}
-
-	ret = win.PdhAddEnglishCounter(queryHandle, counter, 0, &counterHandle)
-	if ret != win.ERROR_SUCCESS {
-		return nil, errors.New(fmt.Sprintf("Unable to add process counter. Error code is %x\n", ret))
-	}
-
-	ret = win.PdhCollectQueryData(queryHandle)
-	if ret != win.ERROR_SUCCESS {
-		return nil, errors.New(fmt.Sprintf("Got an error: 0x%x\n", ret))
-	}
-
-	out := make(chan Metric)
-
-	go func() {
-		for {
-			ret = win.PdhCollectQueryData(queryHandle)
-			if ret == win.ERROR_SUCCESS {
-
-				//var metric []Metric
-				var metric Metric
-
-				var bufSize uint32
-				var bufCount uint32
-				var size = uint32(unsafe.Sizeof(win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE{}))
-				var emptyBuf [1]win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE // need at least 1 addressable null ptr.
-
-				ret = win.PdhGetFormattedCounterArrayDouble(counterHandle, &bufSize, &bufCount, &emptyBuf[0])
-				if ret == win.PDH_MORE_DATA {
-					filledBuf := make([]win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE, bufCount*size)
-					ret = win.PdhGetFormattedCounterArrayDouble(counterHandle, &bufSize, &bufCount, &filledBuf[0])
-					if ret == win.ERROR_SUCCESS {
-						for i := 0; i < int(bufCount); i++ {
-							c := filledBuf[i]
-							s := win.UTF16PtrToString(c.SzName)
-
-							metricName := normalizePerfCounterMetricName(counter)
-							if len(s) > 0 {
-								metricName = fmt.Sprintf("%s.%s", normalizePerfCounterMetricName(counter), normalizePerfCounterMetricName(s))
-							}
-
-							metric = Metric{
-								metricName,
-								fmt.Sprintf("%v", c.FmtValue.DoubleValue),
-								c.FmtValue.DoubleValue,
-								time.Now().Unix()}
-
-						}
-					}
-				}
-				out <- metric
-			}
-
-			time.Sleep(time.Duration(sleepInterval) * time.Second)
-		}
-	}()
-
-	return out, nil
-}
-
-func normalizePerfCounterMetricName(rawName string) (normalizedName string) {
-
-	normalizedName = rawName
-
-	// thanks to Microsoft Windoc.
-	// we have performance counter metric like `\\Processor(_Total)\\% Processor Time`
-	// which we need to convert to `processor_total.processor_time` see perfcounter_test.go for more beautiful examples
-	r := strings.NewReplacer(
-		".", "",
-		"\\", ".",
-		" ", "_",
-	)
-	normalizedName = r.Replace(normalizedName)
-
-	normalizedName = normalizeMetricName(normalizedName)
-	return
-}
-
-func normalizeMetricName(rawName string) (normalizedName string) {
-
-	normalizedName = strings.ToLower(rawName)
-
-	// remove trailing and leading non alphanumeric characters
-	re1 := regexp.MustCompile(`(^[^a-z0-9]+)|([^a-z0-9]+$)`)
-	normalizedName = re1.ReplaceAllString(normalizedName, "")
-
-	// replace whitespaces with underscore
-	re2 := regexp.MustCompile(`\s`)
-	normalizedName = re2.ReplaceAllString(normalizedName, "_")
-
-	// remove non alphanumeric characters except underscore and dot
-	re3 := regexp.MustCompile(`[^a-z0-9._]`)
-	normalizedName = re3.ReplaceAllString(normalizedName, "")
-
-	return
 }
