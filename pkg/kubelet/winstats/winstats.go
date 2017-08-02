@@ -20,13 +20,15 @@ package winstats
 import (
 	"context"
 	"encoding/json"
-	"github.com/bobbypage/win"
+	//"github.com/bobbypage/win"
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
 	//"github.com/golang/glog"
-	"errors"
+	//"errors"
+	//"github.com/davecgh/go-spew/spew"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -48,13 +50,6 @@ func NewClient() (*Client, error) {
 	client.dockerClient = dockerClient
 
 	// create physical memory
-	var physicalMemoryKiloBytes uint64
-	ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
-
-	if !ok {
-		return nil, errors.New("Error reading physical memory")
-	}
-
 	memory, err := getPhysicallyInstalledSystemMemoryBytes()
 
 	if err != nil {
@@ -139,12 +134,44 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 
 	return infos, nil
 }
+
+func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
+	hostname, err := os.Hostname()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &cadvisorapi.MachineInfo{
+		NumCores:       runtime.NumCPU(),
+		MemoryCapacity: c.memoryPhysicalCapacityBytes,
+		MachineID:      hostname,
+	}, nil
+}
+
+func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
+	// get docker version
+
+	dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &cadvisorapi.VersionInfo{
+		KernelVersion:    dockerServerVersion.KernelVersion,
+		DockerVersion:    dockerServerVersion.Version,
+		DockerAPIVersion: dockerServerVersion.APIVersion,
+	}, nil
+}
+
 func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	stats := make([]*cadvisorapiv2.ContainerStats, 1)
-	stats[0] = &cadvisorapiv2.ContainerStats{
+
+	stats = append(stats, &cadvisorapiv2.ContainerStats{
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
 				Total: c.cpuUsageCoreNanoSeconds,
@@ -154,7 +181,7 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 			WorkingSet: c.memoryPrivWorkingSetBytes,
 			Usage:      c.memoryCommitedBytes,
 		},
-	}
+	})
 
 	rootInfo := cadvisorapiv2.ContainerInfo{
 		Spec: cadvisorapiv2.ContainerSpec{

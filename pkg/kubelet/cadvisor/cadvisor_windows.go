@@ -67,13 +67,12 @@ func (cu *cadvisorClient) SubcontainerInfo(name string, req *cadvisorapi.Contain
 }
 
 func (cu *cadvisorClient) MachineInfo() (*cadvisorapi.MachineInfo, error) {
-	return &cadvisorapi.MachineInfo{
-		MemoryCapacity: 32000000000, // 32 GB
-	}, nil
+	return cu.winStatsClient.WinMachineInfo()
 }
 
 func (cu *cadvisorClient) VersionInfo() (*cadvisorapi.VersionInfo, error) {
-	return &cadvisorapi.VersionInfo{}, nil
+	return cu.winStatsClient.WinVersionInfo()
+	//return &cadvisorapi.VersionInfo{}, nil
 }
 
 func (cu *cadvisorClient) ImagesFsInfo() (cadvisorapiv2.FsInfo, error) {
