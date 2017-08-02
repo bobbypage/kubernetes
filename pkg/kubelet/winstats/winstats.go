@@ -76,25 +76,6 @@ func NewClient() (*Client, error) {
 }
 
 func (c *Client) startNodeMonitoring(errChan chan error) {
-
-	//var physicalMemoryKiloBytes uint64
-	//ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
-	//glog.Infof("done making windoc.syscall, ret=%v, res=%v", physicalMemoryKiloBytes, ok)
-
-	//if !ok {
-	//glog.Infof("Error reading physical memory")
-	//}
-
-	//c.memoryPhysicalCapacityBytes = physicalMemoryKiloBytes * 1000 // convert kilobytes to bytes
-	glog.Infof("now memoryPhysicalBytes is %v", c.memoryPhysicalCapacityBytes)
-
-	//ok := win.GetPhysicallyInstalledSystemMemory(&c.memoryPhysicalCapacityKiloBytes)
-	//if !ok {
-	//glog.Infof("Error reading physical memory")
-	//}
-
-	glog.Info("startNodeCPUMonitoring()")
-
 	cpuChan, err := readPerformanceCounter(CPUQuery, 1)
 
 	if err != nil {
@@ -125,7 +106,6 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 			c.mu.Lock()
 			cpuCores := runtime.NumCPU()
 			c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
-			glog.Infof("number of cpuCores %v ; UsageCoreNanoSeconds %v", cpuCores, c.cpuUsageCoreNanoSeconds)
 			c.mu.Unlock()
 		case mWorkingSet := <-memWorkingSetChan:
 			c.mu.Lock()
@@ -137,8 +117,6 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 			c.mu.Unlock()
 		}
 	}
-
-	glog.Info("Exit startNodeCPUMonitoring()")
 }
 
 func (c *Client) WinContainerInfos() map[string]cadvisorapiv2.ContainerInfo {
