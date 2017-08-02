@@ -1,3 +1,4 @@
+// +build windows
 // Package types is used for API stability in the types and response to the
 // consumers of the API stats endpoint.
 package winstats
