@@ -20,7 +20,6 @@ package winstats
 import (
 	"context"
 	"encoding/json"
-	//"github.com/bobbypage/win"
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
 	//"github.com/golang/glog"
@@ -96,7 +95,13 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 		case cpu := <-cpuChan:
 			c.mu.Lock()
 			cpuCores := runtime.NumCPU()
+
+			// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
+			// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
+			// https://github.com/kubernetes/heapster/issues/650
+
 			c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
+
 			c.mu.Unlock()
 		case mWorkingSet := <-memWorkingSetChan:
 			c.mu.Lock()
@@ -107,6 +112,7 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 			c.memoryCommitedBytes = uint64(mCommitedBytes.Value)
 			c.mu.Unlock()
 		}
+
 	}
 }
 
@@ -150,8 +156,6 @@ func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 }
 
 func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
-	// get docker version
-
 	dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
 
 	if err != nil {
@@ -194,7 +198,6 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 		Stats: stats,
 	}
 
-	//glog.Infof("created root container", spew.Sdump(rootInfo))
 	return &rootInfo
 }
 func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadvisorapiv2.ContainerInfo, error) {
@@ -259,7 +262,7 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 		CpuInst:   &cadvisorapiv2.CpuInstStats{},
 		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.Commit},
 		Network:   &cadvisorapiv2.NetworkStats{Interfaces: networkInterfaces},
-		// TODO: ... diskio, memory, network, etc...
+		// TODO: ... diskio, filesystem, etc...
 	}
 	return &stats, nil
 }
