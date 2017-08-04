@@ -27,6 +27,7 @@ import (
 	//"github.com/davecgh/go-spew/spew"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
+	"k8s.io/kubernetes/pkg/kubelet/network"
 	"os"
 	"runtime"
 	"sync"
@@ -173,9 +174,10 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	var stats []*cadvisorapiv2.ContainerStats
 
 	stats = append(stats, &cadvisorapiv2.ContainerStats{
+		Timestamp: time.Now(),
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
 				Total: c.cpuUsageCoreNanoSeconds,
@@ -220,7 +222,7 @@ func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadviso
 		Image:            container.Image,
 	}
 
-	stats := make([]*cadvisorapiv2.ContainerStats, 1)
+	var stats []*cadvisorapiv2.ContainerStats
 	containerStats, err := c.createContainerStats(container)
 
 	if err != nil {
@@ -240,11 +242,11 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 
 	dockerStats := dockerStatsJson.Stats
 	// create network stats
-	networkInterfaces := make([]cadvisorapi.InterfaceStats, len(dockerStatsJson.Networks))
-	for networkName, networkStats := range dockerStatsJson.Networks {
 
+	var networkInterfaces []cadvisorapi.InterfaceStats
+	for _, networkStats := range dockerStatsJson.Networks {
 		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
-			Name:      networkName,
+			Name:      network.DefaultInterfaceName,
 			RxBytes:   networkStats.RxBytes,
 			RxPackets: networkStats.RxPackets,
 			RxErrors:  networkStats.RxErrors,
@@ -257,7 +259,7 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 	}
 
 	stats := cadvisorapiv2.ContainerStats{
-		Timestamp: time.Unix(container.Created, 0),
+		Timestamp: time.Now(),
 		Cpu:       &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: dockerStats.CPUStats.CPUUsage.TotalUsage}},
 		CpuInst:   &cadvisorapiv2.CpuInstStats{},
 		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.Commit},
