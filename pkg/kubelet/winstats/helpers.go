@@ -3,7 +3,7 @@ package winstats
 
 import (
 	"errors"
-	"github.com/bobbypage/win"
+	"github.com/lxn/win"
 )
 
 func getPhysicallyInstalledSystemMemoryBytes() (uint64, error) {

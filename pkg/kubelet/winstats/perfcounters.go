@@ -4,7 +4,7 @@ package winstats
 import (
 	"errors"
 	"fmt"
-	"github.com/bobbypage/win"
+	"github.com/lxn/win"
 	"time"
 	"unsafe"
 )
