@@ -1,6 +1,5 @@
-// +build windows
 /*
-Copyright 2015 The Kubernetes Authors.
+Copyright 2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,16 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// +build windows
+
 package winstats
 
 import (
 	"context"
 	"encoding/json"
+	//dockerstatstypes "github.com/docker/docker/api/types"
 	dockerapi "github.com/docker/engine-api/client"
 	dockertypes "github.com/docker/engine-api/types"
-	//"github.com/golang/glog"
-	//"errors"
-	//"github.com/davecgh/go-spew/spew"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
 	"k8s.io/kubernetes/pkg/kubelet/network"
@@ -113,7 +112,6 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 			c.memoryCommitedBytes = uint64(mCommitedBytes.Value)
 			c.mu.Unlock()
 		}
-
 	}
 }
 

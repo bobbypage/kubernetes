@@ -1,4 +1,21 @@
 // +build windows
+
+/*
+Copyright 2017 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package winstats
 
 import (
@@ -49,8 +66,9 @@ func readPerformanceCounter(counter string, sleepInterval int) (chan Metric, err
 
 	// test path
 	ret = win.PdhValidatePath(counter)
-	if ret == win.PDH_CSTATUS_BAD_COUNTERNAME {
-		return nil, errors.New("Unable to fetch counter (this is unexpected)")
+
+	if ret != win.ERROR_SUCCESS {
+		return nil, errors.New(fmt.Sprintf("Unable to valid path to counter. Error code is %x\n", ret))
 	}
 
 	ret = win.PdhAddEnglishCounter(queryHandle, counter, 0, &counterHandle)
@@ -69,9 +87,7 @@ func readPerformanceCounter(counter string, sleepInterval int) (chan Metric, err
 		for {
 			ret = win.PdhCollectQueryData(queryHandle)
 			if ret == win.ERROR_SUCCESS {
-
 				var metric Metric
-
 				var bufSize uint32
 				var bufCount uint32
 				var size = uint32(unsafe.Sizeof(win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE{}))
