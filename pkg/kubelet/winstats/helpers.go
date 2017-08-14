@@ -25,10 +25,10 @@ import (
 
 func getPhysicallyInstalledSystemMemoryBytes() (uint64, error) {
 	var physicalMemoryKiloBytes uint64
-	ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes)
 
-	if !ok {
+	if ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes); !ok {
 		return 0, errors.New("Unable to read physical memory")
 	}
+
 	return physicalMemoryKiloBytes * 1024, nil // convert kilobytes to bytes
 }

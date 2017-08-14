@@ -37,7 +37,7 @@ type Client struct {
 	dockerClient                *dockerapi.Client
 	cpuUsageCoreNanoSeconds     uint64
 	memoryPrivWorkingSetBytes   uint64
-	memoryCommitedBytes         uint64
+	memoryCommittedBytes        uint64
 	mu                          sync.Mutex
 	memoryPhysicalCapacityBytes uint64
 }
@@ -66,21 +66,21 @@ func NewClient() (*Client, error) {
 }
 
 func (c *Client) startNodeMonitoring(errChan chan error) {
-	cpuChan, err := readPerformanceCounter(CPUQuery, 1)
+	cpuChan, err := readPerformanceCounter(CPUQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery, 1)
+	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery, 1)
+	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery)
 
 	if err != nil {
 		errChan <- err
@@ -93,26 +93,36 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 	for {
 		select {
 		case cpu := <-cpuChan:
-			c.mu.Lock()
-			cpuCores := runtime.NumCPU()
-
-			// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
-			// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
-			// https://github.com/kubernetes/heapster/issues/650
-
-			c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
-
-			c.mu.Unlock()
+			c.updateCPU(cpu)
 		case mWorkingSet := <-memWorkingSetChan:
-			c.mu.Lock()
-			c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
-			c.mu.Unlock()
-		case mCommitedBytes := <-memCommittedBytesChan:
-			c.mu.Lock()
-			c.memoryCommitedBytes = uint64(mCommitedBytes.Value)
-			c.mu.Unlock()
+			c.updateMemoryWorkingSet(mWorkingSet)
+		case mCommittedBytes := <-memCommittedBytesChan:
+			c.updateMemoryCommittedBytes(mCommittedBytes)
 		}
 	}
+}
+
+func (c *Client) updateCPU(cpu Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cpuCores := runtime.NumCPU()
+	// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
+	// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
+	// https://github.com/kubernetes/heapster/issues/650
+	c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
+}
+
+func (c *Client) updateMemoryWorkingSet(mWorkingSet Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
+}
+
+func (c *Client) updateMemoryCommittedBytes(mCommittedBytes Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.memoryCommittedBytes = uint64(mCommittedBytes.Value)
 }
 
 func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
@@ -127,8 +137,10 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 		return nil, err
 	}
 
-	for _, container := range containers {
-		containerInfo, err := c.createContainerInfo(&container)
+	for idx := range containers {
+		container := &containers[idx]
+
+		containerInfo, err := c.createContainerInfo(container)
 
 		if err != nil {
 			return nil, err
@@ -183,7 +195,7 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 		},
 		Memory: &cadvisorapi.MemoryStats{
 			WorkingSet: c.memoryPrivWorkingSetBytes,
-			Usage:      c.memoryCommitedBytes,
+			Usage:      c.memoryCommittedBytes,
 		},
 	})
 
@@ -242,6 +254,7 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 	// create network stats
 
 	var networkInterfaces []cadvisorapi.InterfaceStats
+
 	for _, networkStats := range dockerStatsJson.Networks {
 		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
 			Name:      network.DefaultInterfaceName,
