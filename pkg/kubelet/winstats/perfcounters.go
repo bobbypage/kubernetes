@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	CPUQuery                  = "\\Processor(_Total)\\% Processor Time"
-	MemoryPrivWorkingSetQuery = "\\Process(_Total)\\Working Set - Private"
-	MemoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
+	cpuQuery                  = "\\Processor(_Total)\\% Processor Time"
+	memoryPrivWorkingSetQuery = "\\Process(_Total)\\Working Set - Private"
+	memoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
 	perfCounterUpdatePeriod   = 1 * time.Second
 )
 
@@ -81,7 +81,7 @@ func readPerformanceCounter(counter string) (chan Metric, error) {
 
 	ret = win.PdhCollectQueryData(queryHandle)
 	if ret != win.ERROR_SUCCESS {
-		return nil, fmt.Errorf("Unable to collect data from counter. Error code is %x\n", ret)
+		return nil, fmt.Errorf("Unable to collect data from counter. Error code is %x", ret)
 	}
 
 	out := make(chan Metric)

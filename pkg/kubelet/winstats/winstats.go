@@ -16,6 +16,7 @@ limitations under the License.
 
 // +build windows
 
+// Package winstats provides a client to get node and pod level stats on windows
 package winstats
 
 import (
@@ -33,6 +34,7 @@ import (
 	"time"
 )
 
+// Client is an object that is used to get stats information.
 type Client struct {
 	dockerClient                *dockerapi.Client
 	cpuUsageCoreNanoSeconds     uint64
@@ -42,6 +44,7 @@ type Client struct {
 	memoryPhysicalCapacityBytes uint64
 }
 
+// NewClient constructs a Client.
 func NewClient() (*Client, error) {
 	client := new(Client)
 
@@ -65,22 +68,24 @@ func NewClient() (*Client, error) {
 	return client, err
 }
 
+// startNodeMonitoring starts reading perf counters of the node and updates
+// the client struct with cpu and memory stats
 func (c *Client) startNodeMonitoring(errChan chan error) {
-	cpuChan, err := readPerformanceCounter(CPUQuery)
+	cpuChan, err := readPerformanceCounter(cpuQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery)
+	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery)
+	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
 
 	if err != nil {
 		errChan <- err
@@ -125,6 +130,8 @@ func (c *Client) updateMemoryCommittedBytes(mCommittedBytes Metric) {
 	c.memoryCommittedBytes = uint64(mCommittedBytes.Value)
 }
 
+// WinContainerInfos returns a map of container infos. The map contains node and
+// pod level stats. Analogous to cadvisor GetContainerInfoV2 method.
 func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	infos := make(map[string]cadvisorapiv2.ContainerInfo)
 
@@ -152,6 +159,8 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 	return infos, nil
 }
 
+// WinMachineInfo returns a cadvisorapi.MachineInfo with details about the
+// node machine. Analogous to cadvisor MachineInfo method.
 func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	hostname, err := os.Hostname()
 
@@ -166,6 +175,8 @@ func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	}, nil
 }
 
+// WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
+// the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
 func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
 
@@ -244,18 +255,18 @@ func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadviso
 }
 
 func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvisorapiv2.ContainerStats, error) {
-	dockerStatsJson, err := c.getStatsForContainer(container.ID)
+	dockerStatsJSON, err := c.getStatsForContainer(container.ID)
 
 	if err != nil {
 		return nil, err
 	}
 
-	dockerStats := dockerStatsJson.Stats
+	dockerStats := dockerStatsJSON.Stats
 	// create network stats
 
 	var networkInterfaces []cadvisorapi.InterfaceStats
 
-	for _, networkStats := range dockerStatsJson.Networks {
+	for _, networkStats := range dockerStatsJSON.Networks {
 		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
 			Name:      network.DefaultInterfaceName,
 			RxBytes:   networkStats.RxBytes,
@@ -280,8 +291,8 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 	return &stats, nil
 }
 
-func (c *Client) getStatsForContainer(containerId string) (*StatsJSON, error) {
-	response, err := c.dockerClient.ContainerStats(context.Background(), containerId, false)
+func (c *Client) getStatsForContainer(containerID string) (*StatsJSON, error) {
+	response, err := c.dockerClient.ContainerStats(context.Background(), containerID, false)
 	defer response.Close()
 
 	if err != nil {
