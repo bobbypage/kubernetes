@@ -1,3 +1,5 @@
+// +build windows
+
 /*
 Copyright 2017 The Kubernetes Authors.
 
@@ -14,8 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +build windows
-
+// Package winstats provides a client to get node and pod level stats on windows
 package winstats
 
 import (
@@ -33,15 +34,17 @@ import (
 	"time"
 )
 
+// Client is an object that is used to get stats information.
 type Client struct {
 	dockerClient                *dockerapi.Client
 	cpuUsageCoreNanoSeconds     uint64
 	memoryPrivWorkingSetBytes   uint64
-	memoryCommitedBytes         uint64
+	memoryCommittedBytes        uint64
 	mu                          sync.Mutex
 	memoryPhysicalCapacityBytes uint64
 }
 
+// NewClient constructs a Client.
 func NewClient() (*Client, error) {
 	client := new(Client)
 
@@ -65,22 +68,24 @@ func NewClient() (*Client, error) {
 	return client, err
 }
 
+// startNodeMonitoring starts reading perf counters of the node and updates
+// the client struct with cpu and memory stats
 func (c *Client) startNodeMonitoring(errChan chan error) {
-	cpuChan, err := readPerformanceCounter(CPUQuery, 1)
+	cpuChan, err := readPerformanceCounter(cpuQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memWorkingSetChan, err := readPerformanceCounter(MemoryPrivWorkingSetQuery, 1)
+	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
 
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	memCommittedBytesChan, err := readPerformanceCounter(MemoryCommittedBytesQuery, 1)
+	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
 
 	if err != nil {
 		errChan <- err
@@ -93,28 +98,40 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 	for {
 		select {
 		case cpu := <-cpuChan:
-			c.mu.Lock()
-			cpuCores := runtime.NumCPU()
-
-			// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
-			// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
-			// https://github.com/kubernetes/heapster/issues/650
-
-			c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
-
-			c.mu.Unlock()
+			c.updateCPU(cpu)
 		case mWorkingSet := <-memWorkingSetChan:
-			c.mu.Lock()
-			c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
-			c.mu.Unlock()
-		case mCommitedBytes := <-memCommittedBytesChan:
-			c.mu.Lock()
-			c.memoryCommitedBytes = uint64(mCommitedBytes.Value)
-			c.mu.Unlock()
+			c.updateMemoryWorkingSet(mWorkingSet)
+		case mCommittedBytes := <-memCommittedBytesChan:
+			c.updateMemoryCommittedBytes(mCommittedBytes)
 		}
 	}
 }
 
+func (c *Client) updateCPU(cpu Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cpuCores := runtime.NumCPU()
+	// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
+	// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
+	// https://github.com/kubernetes/heapster/issues/650
+	c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
+}
+
+func (c *Client) updateMemoryWorkingSet(mWorkingSet Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
+}
+
+func (c *Client) updateMemoryCommittedBytes(mCommittedBytes Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.memoryCommittedBytes = uint64(mCommittedBytes.Value)
+}
+
+// WinContainerInfos returns a map of container infos. The map contains node and
+// pod level stats. Analogous to cadvisor GetContainerInfoV2 method.
 func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	infos := make(map[string]cadvisorapiv2.ContainerInfo)
 
@@ -127,8 +144,10 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 		return nil, err
 	}
 
-	for _, container := range containers {
-		containerInfo, err := c.createContainerInfo(&container)
+	for idx := range containers {
+		container := &containers[idx]
+
+		containerInfo, err := c.createContainerInfo(container)
 
 		if err != nil {
 			return nil, err
@@ -140,6 +159,8 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 	return infos, nil
 }
 
+// WinMachineInfo returns a cadvisorapi.MachineInfo with details about the
+// node machine. Analogous to cadvisor MachineInfo method.
 func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	hostname, err := os.Hostname()
 
@@ -154,6 +175,8 @@ func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	}, nil
 }
 
+// WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
+// the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
 func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
 
@@ -183,7 +206,7 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 		},
 		Memory: &cadvisorapi.MemoryStats{
 			WorkingSet: c.memoryPrivWorkingSetBytes,
-			Usage:      c.memoryCommitedBytes,
+			Usage:      c.memoryCommittedBytes,
 		},
 	})
 
@@ -232,17 +255,18 @@ func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadviso
 }
 
 func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvisorapiv2.ContainerStats, error) {
-	dockerStatsJson, err := c.getStatsForContainer(container.ID)
+	dockerStatsJSON, err := c.getStatsForContainer(container.ID)
 
 	if err != nil {
 		return nil, err
 	}
 
-	dockerStats := dockerStatsJson.Stats
+	dockerStats := dockerStatsJSON.Stats
 	// create network stats
 
 	var networkInterfaces []cadvisorapi.InterfaceStats
-	for _, networkStats := range dockerStatsJson.Networks {
+
+	for _, networkStats := range dockerStatsJSON.Networks {
 		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
 			Name:      network.DefaultInterfaceName,
 			RxBytes:   networkStats.RxBytes,
@@ -267,8 +291,8 @@ func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvis
 	return &stats, nil
 }
 
-func (c *Client) getStatsForContainer(containerId string) (*dockerstatstypes.StatsJSON, error) {
-	response, err := c.dockerClient.ContainerStats(context.Background(), containerId, false)
+func (c *Client) getStatsForContainer(containerID string) (*dockerstatstypes.StatsJSON, error) {
+	response, err := c.dockerClient.ContainerStats(context.Background(), containerID, false)
 	defer response.Close()
 
 	if err != nil {
