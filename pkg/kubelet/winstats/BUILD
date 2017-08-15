@@ -2,25 +2,6 @@ package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
-load(
-    "@io_bazel_rules_go//go:def.bzl",
-    "go_library",
-)
-
-go_library(
-    name = "go_default_library",
-    srcs = ["winstats.go"],
-    tags = ["automanaged"],
-    deps = [
-        "//pkg/kubelet/network:go_default_library",
-        "//vendor/github.com/docker/docker/api/types:go_default_library",
-        "//vendor/github.com/docker/engine-api/client:go_default_library",
-        "//vendor/github.com/docker/engine-api/types:go_default_library",
-        "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
-        "//vendor/github.com/google/cadvisor/info/v2:go_default_library",
-    ],
-)
-
 filegroup(
     name = "package-srcs",
     srcs = glob(["**"]),
@@ -32,4 +13,31 @@ filegroup(
     name = "all-srcs",
     srcs = [":package-srcs"],
     tags = ["automanaged"],
+)
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "helpers.go",
+            "perfcounters.go",
+            "winstats.go",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "//pkg/kubelet/network:go_default_library",
+            "//vendor/github.com/docker/docker/api/types:go_default_library",
+            "//vendor/github.com/docker/engine-api/client:go_default_library",
+            "//vendor/github.com/docker/engine-api/types:go_default_library",
+            "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
+            "//vendor/github.com/google/cadvisor/info/v2:go_default_library",
+            "//vendor/github.com/lxn/win:go_default_library",
+            "//vendor/k8s.io/apimachinery/pkg/util/wait:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
 )
