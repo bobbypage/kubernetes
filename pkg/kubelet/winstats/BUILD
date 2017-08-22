@@ -29,10 +29,7 @@ go_library(
     }),
     deps = select({
         "@io_bazel_rules_go//go/platform:windows_amd64": [
-            "//pkg/kubelet/network:go_default_library",
-            "//vendor/github.com/docker/docker/api/types:go_default_library",
             "//vendor/github.com/docker/engine-api/client:go_default_library",
-            "//vendor/github.com/docker/engine-api/types:go_default_library",
             "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
             "//vendor/github.com/google/cadvisor/info/v2:go_default_library",
             "//vendor/github.com/lxn/win:go_default_library",

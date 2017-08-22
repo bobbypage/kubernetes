@@ -21,13 +21,9 @@ package winstats
 
 import (
 	"context"
-	"encoding/json"
-	dockerstatstypes "github.com/docker/docker/api/types"
 	dockerapi "github.com/docker/engine-api/client"
-	dockertypes "github.com/docker/engine-api/types"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
-	"k8s.io/kubernetes/pkg/kubelet/network"
 	"os"
 	"runtime"
 	"sync"
@@ -138,24 +134,6 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 	// root (node) container
 	infos["/"] = *c.createRootContainerInfo()
 
-	containers, err := c.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
-
-	if err != nil {
-		return nil, err
-	}
-
-	for idx := range containers {
-		container := &containers[idx]
-
-		containerInfo, err := c.createContainerInfo(container)
-
-		if err != nil {
-			return nil, err
-		}
-
-		infos[container.ID] = *containerInfo
-	}
-
 	return infos, nil
 }
 
@@ -222,90 +200,4 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	}
 
 	return &rootInfo
-}
-func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadvisorapiv2.ContainerInfo, error) {
-
-	spec := cadvisorapiv2.ContainerSpec{
-		CreationTime:     time.Unix(container.Created, 0),
-		Aliases:          []string{},
-		Namespace:        "docker",
-		Labels:           container.Labels,
-		Envs:             map[string]string{},
-		HasCpu:           true,
-		Cpu:              cadvisorapiv2.CpuSpec{},
-		HasMemory:        true,
-		Memory:           cadvisorapiv2.MemorySpec{},
-		HasCustomMetrics: false,
-		CustomMetrics:    []cadvisorapi.MetricSpec{},
-		HasNetwork:       true,
-		HasFilesystem:    false,
-		HasDiskIo:        false,
-		Image:            container.Image,
-	}
-
-	var stats []*cadvisorapiv2.ContainerStats
-	containerStats, err := c.createContainerStats(container)
-
-	if err != nil {
-		return nil, err
-	}
-
-	stats = append(stats, containerStats)
-	return &cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}, nil
-}
-
-func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvisorapiv2.ContainerStats, error) {
-	dockerStatsJSON, err := c.getStatsForContainer(container.ID)
-
-	if err != nil {
-		return nil, err
-	}
-
-	dockerStats := dockerStatsJSON.Stats
-	// create network stats
-
-	var networkInterfaces []cadvisorapi.InterfaceStats
-
-	for _, networkStats := range dockerStatsJSON.Networks {
-		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
-			Name:      network.DefaultInterfaceName,
-			RxBytes:   networkStats.RxBytes,
-			RxPackets: networkStats.RxPackets,
-			RxErrors:  networkStats.RxErrors,
-			RxDropped: networkStats.RxDropped,
-			TxBytes:   networkStats.TxBytes,
-			TxPackets: networkStats.TxPackets,
-			TxErrors:  networkStats.TxErrors,
-			TxDropped: networkStats.TxDropped,
-		})
-	}
-
-	stats := cadvisorapiv2.ContainerStats{
-		Timestamp: time.Now(),
-		Cpu:       &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: dockerStats.CPUStats.CPUUsage.TotalUsage}},
-		CpuInst:   &cadvisorapiv2.CpuInstStats{},
-		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.Commit},
-		Network:   &cadvisorapiv2.NetworkStats{Interfaces: networkInterfaces},
-		// TODO: ... diskio, filesystem, etc...
-	}
-	return &stats, nil
-}
-
-func (c *Client) getStatsForContainer(containerID string) (*dockerstatstypes.StatsJSON, error) {
-	response, err := c.dockerClient.ContainerStats(context.Background(), containerID, false)
-	defer response.Close()
-
-	if err != nil {
-		return nil, err
-	}
-	dec := json.NewDecoder(response)
-
-	var stats dockerstatstypes.StatsJSON
-	err = dec.Decode(&stats)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &stats, nil
 }
