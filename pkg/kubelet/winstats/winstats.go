@@ -20,26 +20,18 @@ limitations under the License.
 package winstats
 
 import (
-	"context"
-	"encoding/json"
-	//dockerstatstypes "github.com/docker/docker/api/types"
-	dockerapi "github.com/docker/engine-api/client"
-	dockertypes "github.com/docker/engine-api/types"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
-	"k8s.io/kubernetes/pkg/kubelet/network"
 	"os"
 	"runtime"
 	"sync"
-	"time"
 )
 
 // Client is an object that is used to get stats information.
 type Client struct {
-	dockerClient                *dockerapi.Client
-	cpuUsageCoreNanoSeconds     uint64
-	memoryPrivWorkingSetBytes   uint64
-	memoryCommittedBytes        uint64
+	cpuUsageCoreNanoSeconds     metric
+	memoryPrivWorkingSetBytes   metric
+	memoryCommittedBytes        metric
 	mu                          sync.Mutex
 	memoryPhysicalCapacityBytes uint64
 }
@@ -47,9 +39,6 @@ type Client struct {
 // NewClient constructs a Client.
 func NewClient() (*Client, error) {
 	client := new(Client)
-
-	dockerClient, _ := dockerapi.NewEnvClient()
-	client.dockerClient = dockerClient
 
 	// create physical memory
 	memory, err := getPhysicallyInstalledSystemMemoryBytes()
@@ -107,7 +96,7 @@ func (c *Client) startNodeMonitoring(errChan chan error) {
 	}
 }
 
-func (c *Client) updateCPU(cpu Metric) {
+func (c *Client) updateCPU(cpu metric) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -115,19 +104,26 @@ func (c *Client) updateCPU(cpu Metric) {
 	// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
 	// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
 	// https://github.com/kubernetes/heapster/issues/650
-	c.cpuUsageCoreNanoSeconds += uint64((cpu.Value / 100.0) * float64(cpuCores) * 1000000000)
+
+	newValue := c.cpuUsageCoreNanoSeconds.Value + (uint64((cpu.Value / 100.0) * uint64(cpuCores) * 1000000000))
+
+	c.cpuUsageCoreNanoSeconds = metric{
+		Name:      cpu.Name,
+		Value:     newValue,
+		Timestamp: cpu.Timestamp,
+	}
 }
 
-func (c *Client) updateMemoryWorkingSet(mWorkingSet Metric) {
+func (c *Client) updateMemoryWorkingSet(mWorkingSet metric) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.memoryPrivWorkingSetBytes = uint64(mWorkingSet.Value)
+	c.memoryPrivWorkingSetBytes = mWorkingSet
 }
 
-func (c *Client) updateMemoryCommittedBytes(mCommittedBytes Metric) {
+func (c *Client) updateMemoryCommittedBytes(mCommittedBytes metric) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.memoryCommittedBytes = uint64(mCommittedBytes.Value)
+	c.memoryCommittedBytes = mCommittedBytes
 }
 
 // WinContainerInfos returns a map of container infos. The map contains node and
@@ -137,24 +133,6 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 
 	// root (node) container
 	infos["/"] = *c.createRootContainerInfo()
-
-	containers, err := c.dockerClient.ContainerList(context.Background(), dockertypes.ContainerListOptions{})
-
-	if err != nil {
-		return nil, err
-	}
-
-	for idx := range containers {
-		container := &containers[idx]
-
-		containerInfo, err := c.createContainerInfo(container)
-
-		if err != nil {
-			return nil, err
-		}
-
-		infos[container.ID] = *containerInfo
-	}
 
 	return infos, nil
 }
@@ -178,17 +156,19 @@ func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 // WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
 // the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
 func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
-	dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
+	//dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
 
-	if err != nil {
-		return nil, err
-	}
+	return &cadvisorapi.VersionInfo{}, nil
 
-	return &cadvisorapi.VersionInfo{
-		KernelVersion:    dockerServerVersion.KernelVersion,
-		DockerVersion:    dockerServerVersion.Version,
-		DockerAPIVersion: dockerServerVersion.APIVersion,
-	}, nil
+	//if err != nil {
+	//return nil, err
+	//}
+
+	//return &cadvisorapi.VersionInfo{
+	//KernelVersion:    dockerServerVersion.KernelVersion,
+	//DockerVersion:    dockerServerVersion.Version,
+	//DockerAPIVersion: dockerServerVersion.APIVersion,
+	//}, nil
 }
 
 func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
@@ -198,15 +178,15 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	var stats []*cadvisorapiv2.ContainerStats
 
 	stats = append(stats, &cadvisorapiv2.ContainerStats{
-		Timestamp: time.Now(),
+		Timestamp: c.cpuUsageCoreNanoSeconds.Timestamp, // Use CPU as timestamp for stat collection
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
-				Total: c.cpuUsageCoreNanoSeconds,
+				Total: c.cpuUsageCoreNanoSeconds.Value,
 			},
 		},
 		Memory: &cadvisorapi.MemoryStats{
-			WorkingSet: c.memoryPrivWorkingSetBytes,
-			Usage:      c.memoryCommittedBytes,
+			WorkingSet: c.memoryPrivWorkingSetBytes.Value,
+			Usage:      c.memoryCommittedBytes.Value,
 		},
 	})
 
@@ -222,90 +202,4 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 	}
 
 	return &rootInfo
-}
-func (c *Client) createContainerInfo(container *dockertypes.Container) (*cadvisorapiv2.ContainerInfo, error) {
-
-	spec := cadvisorapiv2.ContainerSpec{
-		CreationTime:     time.Unix(container.Created, 0),
-		Aliases:          []string{},
-		Namespace:        "docker",
-		Labels:           container.Labels,
-		Envs:             map[string]string{},
-		HasCpu:           true,
-		Cpu:              cadvisorapiv2.CpuSpec{},
-		HasMemory:        true,
-		Memory:           cadvisorapiv2.MemorySpec{},
-		HasCustomMetrics: false,
-		CustomMetrics:    []cadvisorapi.MetricSpec{},
-		HasNetwork:       true,
-		HasFilesystem:    false,
-		HasDiskIo:        false,
-		Image:            container.Image,
-	}
-
-	var stats []*cadvisorapiv2.ContainerStats
-	containerStats, err := c.createContainerStats(container)
-
-	if err != nil {
-		return nil, err
-	}
-
-	stats = append(stats, containerStats)
-	return &cadvisorapiv2.ContainerInfo{Spec: spec, Stats: stats}, nil
-}
-
-func (c *Client) createContainerStats(container *dockertypes.Container) (*cadvisorapiv2.ContainerStats, error) {
-	dockerStatsJSON, err := c.getStatsForContainer(container.ID)
-
-	if err != nil {
-		return nil, err
-	}
-
-	dockerStats := dockerStatsJSON.Stats
-	// create network stats
-
-	var networkInterfaces []cadvisorapi.InterfaceStats
-
-	for _, networkStats := range dockerStatsJSON.Networks {
-		networkInterfaces = append(networkInterfaces, cadvisorapi.InterfaceStats{
-			Name:      network.DefaultInterfaceName,
-			RxBytes:   networkStats.RxBytes,
-			RxPackets: networkStats.RxPackets,
-			RxErrors:  networkStats.RxErrors,
-			RxDropped: networkStats.RxDropped,
-			TxBytes:   networkStats.TxBytes,
-			TxPackets: networkStats.TxPackets,
-			TxErrors:  networkStats.TxErrors,
-			TxDropped: networkStats.TxDropped,
-		})
-	}
-
-	stats := cadvisorapiv2.ContainerStats{
-		Timestamp: time.Now(),
-		Cpu:       &cadvisorapi.CpuStats{Usage: cadvisorapi.CpuUsage{Total: dockerStats.CPUStats.CPUUsage.TotalUsage}},
-		CpuInst:   &cadvisorapiv2.CpuInstStats{},
-		Memory:    &cadvisorapi.MemoryStats{WorkingSet: dockerStats.MemoryStats.PrivateWorkingSet, Usage: dockerStats.MemoryStats.Commit},
-		Network:   &cadvisorapiv2.NetworkStats{Interfaces: networkInterfaces},
-		// TODO: ... diskio, filesystem, etc...
-	}
-	return &stats, nil
-}
-
-func (c *Client) getStatsForContainer(containerID string) (*StatsJSON, error) {
-	response, err := c.dockerClient.ContainerStats(context.Background(), containerID, false)
-	defer response.Close()
-
-	if err != nil {
-		return nil, err
-	}
-	dec := json.NewDecoder(response)
-
-	var stats StatsJSON
-	err = dec.Decode(&stats)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &stats, nil
 }
