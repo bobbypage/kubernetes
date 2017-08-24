@@ -20,6 +20,7 @@ package winstats
 
 import (
 	"errors"
+
 	"github.com/lxn/win"
 )
 

@@ -36,7 +36,7 @@ var _ Interface = new(cadvisorClient)
 func New(address string, port uint, runtime string, rootPath string) (Interface, error) {
 	glog.Infof("CREATING A NEW CADVISOR CLIENT")
 
-	client, err := winstats.NewClient()
+	client, err := winstats.NewClient(winstats.NewPerfCounterNodeStatsClient())
 
 	return &cadvisorClient{winStatsClient: client}, err
 }

@@ -21,10 +21,10 @@ package winstats
 import (
 	"errors"
 	"fmt"
-	"github.com/lxn/win"
 	"time"
 	"unsafe"
 
+	"github.com/lxn/win"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -34,21 +34,6 @@ const (
 	memoryCommittedBytesQuery = "\\Memory\\Committed Bytes"
 	perfCounterUpdatePeriod   = 1 * time.Second
 )
-
-// metric collected from a counter
-type metric struct {
-	Name      string
-	Value     uint64
-	Timestamp time.Time
-}
-
-// newMetric construct a Metric struct
-func newMetric(name string, value uint64) metric {
-	return metric{
-		Name:  name,
-		Value: value,
-	}
-}
 
 func readPerformanceCounter(counter string) (chan metric, error) {
 

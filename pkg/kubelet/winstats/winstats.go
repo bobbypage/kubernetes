@@ -1,5 +1,3 @@
-// +build windows
-
 /*
 Copyright 2017 The Kubernetes Authors.
 
@@ -20,119 +18,63 @@ limitations under the License.
 package winstats
 
 import (
+	"time"
+
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
-	"os"
-	"runtime"
-	"sync"
 )
 
 // Client is an object that is used to get stats information.
 type Client struct {
+	winNodeStatsClient
+}
+
+type winNodeStatsClient interface {
+	startMonitoring() error
+	getNodeStats() (*nodeStats, error)
+	getMachineInfo() (*cadvisorapi.MachineInfo, error)
+	getVersionInfo() (*cadvisorapi.VersionInfo, error)
+}
+
+type metric struct {
+	Name      string
+	Value     uint64
+	Timestamp time.Time
+}
+
+type nodeStats struct {
 	cpuUsageCoreNanoSeconds     metric
 	memoryPrivWorkingSetBytes   metric
 	memoryCommittedBytes        metric
-	mu                          sync.Mutex
 	memoryPhysicalCapacityBytes uint64
+	kernelVersion               string
 }
 
 // NewClient constructs a Client.
-func NewClient() (*Client, error) {
+func NewClient(statsClient winNodeStatsClient) (*Client, error) {
 	client := new(Client)
+	client.winNodeStatsClient = statsClient
 
-	// create physical memory
-	memory, err := getPhysicallyInstalledSystemMemoryBytes()
+	err := client.startMonitoring()
 
 	if err != nil {
 		return nil, err
 	}
 
-	client.memoryPhysicalCapacityBytes = memory
-
-	// start node monitoring (reading perf counters)
-	errChan := make(chan error, 1)
-	go client.startNodeMonitoring(errChan)
-
-	err = <-errChan
-	return client, err
-}
-
-// startNodeMonitoring starts reading perf counters of the node and updates
-// the client struct with cpu and memory stats
-func (c *Client) startNodeMonitoring(errChan chan error) {
-	cpuChan, err := readPerformanceCounter(cpuQuery)
-
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
-
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
-
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	// no error, send nil over channel
-	errChan <- nil
-
-	for {
-		select {
-		case cpu := <-cpuChan:
-			c.updateCPU(cpu)
-		case mWorkingSet := <-memWorkingSetChan:
-			c.updateMemoryWorkingSet(mWorkingSet)
-		case mCommittedBytes := <-memCommittedBytesChan:
-			c.updateMemoryCommittedBytes(mCommittedBytes)
-		}
-	}
-}
-
-func (c *Client) updateCPU(cpu metric) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	cpuCores := runtime.NumCPU()
-	// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
-	// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
-	// https://github.com/kubernetes/heapster/issues/650
-
-	newValue := c.cpuUsageCoreNanoSeconds.Value + (uint64((cpu.Value / 100.0) * uint64(cpuCores) * 1000000000))
-
-	c.cpuUsageCoreNanoSeconds = metric{
-		Name:      cpu.Name,
-		Value:     newValue,
-		Timestamp: cpu.Timestamp,
-	}
-}
-
-func (c *Client) updateMemoryWorkingSet(mWorkingSet metric) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.memoryPrivWorkingSetBytes = mWorkingSet
-}
-
-func (c *Client) updateMemoryCommittedBytes(mCommittedBytes metric) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.memoryCommittedBytes = mCommittedBytes
+	return client, nil
 }
 
 // WinContainerInfos returns a map of container infos. The map contains node and
 // pod level stats. Analogous to cadvisor GetContainerInfoV2 method.
 func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	infos := make(map[string]cadvisorapiv2.ContainerInfo)
+	rootContainerInfo, err := c.createRootContainerInfo()
 
-	// root (node) container
-	infos["/"] = *c.createRootContainerInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	infos["/"] = *rootContainerInfo
 
 	return infos, nil
 }
@@ -140,53 +82,33 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 // WinMachineInfo returns a cadvisorapi.MachineInfo with details about the
 // node machine. Analogous to cadvisor MachineInfo method.
 func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
-	hostname, err := os.Hostname()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &cadvisorapi.MachineInfo{
-		NumCores:       runtime.NumCPU(),
-		MemoryCapacity: c.memoryPhysicalCapacityBytes,
-		MachineID:      hostname,
-	}, nil
+	return c.getMachineInfo()
 }
 
 // WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
 // the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
 func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
-	//dockerServerVersion, err := c.dockerClient.ServerVersion(context.Background())
-
-	return &cadvisorapi.VersionInfo{}, nil
-
-	//if err != nil {
-	//return nil, err
-	//}
-
-	//return &cadvisorapi.VersionInfo{
-	//KernelVersion:    dockerServerVersion.KernelVersion,
-	//DockerVersion:    dockerServerVersion.Version,
-	//DockerAPIVersion: dockerServerVersion.APIVersion,
-	//}, nil
+	return c.getVersionInfo()
 }
 
-func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Client) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error) {
+	nodeStats, err := c.getNodeStats()
 
+	if err != nil {
+		return nil, err
+	}
 	var stats []*cadvisorapiv2.ContainerStats
 
 	stats = append(stats, &cadvisorapiv2.ContainerStats{
-		Timestamp: c.cpuUsageCoreNanoSeconds.Timestamp, // Use CPU as timestamp for stat collection
+		Timestamp: nodeStats.cpuUsageCoreNanoSeconds.Timestamp,
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
-				Total: c.cpuUsageCoreNanoSeconds.Value,
+				Total: nodeStats.cpuUsageCoreNanoSeconds.Value,
 			},
 		},
 		Memory: &cadvisorapi.MemoryStats{
-			WorkingSet: c.memoryPrivWorkingSetBytes.Value,
-			Usage:      c.memoryCommittedBytes.Value,
+			WorkingSet: nodeStats.memoryPrivWorkingSetBytes.Value,
+			Usage:      nodeStats.memoryCommittedBytes.Value,
 		},
 	})
 
@@ -195,11 +117,11 @@ func (c *Client) createRootContainerInfo() *cadvisorapiv2.ContainerInfo {
 			HasCpu:    true,
 			HasMemory: true,
 			Memory: cadvisorapiv2.MemorySpec{
-				Limit: c.memoryPhysicalCapacityBytes,
+				Limit: nodeStats.memoryPhysicalCapacityBytes,
 			},
 		},
 		Stats: stats,
 	}
 
-	return &rootInfo
+	return &rootInfo, nil
 }
