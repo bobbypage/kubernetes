@@ -21,10 +21,11 @@ package winstats
 import (
 	"errors"
 	"fmt"
-	"github.com/lxn/win"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"time"
 	"unsafe"
+
+	"github.com/lxn/win"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -34,29 +35,7 @@ const (
 	perfCounterUpdatePeriod   = 1 * time.Second
 )
 
-// Metric collected from a counter
-type Metric struct {
-	Name  string
-	Value float64
-}
-
-// NewMetric construct a Metric struct
-func NewMetric(name string, value float64) Metric {
-	return Metric{
-		Name:  name,
-		Value: value,
-	}
-}
-
-func (metric Metric) String() string {
-	return fmt.Sprintf(
-		"Name: %s | Value: %s",
-		metric.Name,
-		metric.Value,
-	)
-}
-
-func readPerformanceCounter(counter string) (chan Metric, error) {
+func readPerformanceCounter(counter string) (chan metric, error) {
 
 	var queryHandle win.PDH_HQUERY
 	var counterHandle win.PDH_HCOUNTER
@@ -83,7 +62,7 @@ func readPerformanceCounter(counter string) (chan Metric, error) {
 		return nil, fmt.Errorf("Unable to collect data from counter. Error code is %x", ret)
 	}
 
-	out := make(chan Metric)
+	out := make(chan metric)
 
 	go wait.Forever(func() {
 		collectCounterData(queryHandle, counterHandle, counter, out)
@@ -92,11 +71,11 @@ func readPerformanceCounter(counter string) (chan Metric, error) {
 	return out, nil
 }
 
-func collectCounterData(queryHandle win.PDH_HQUERY, counterHandle win.PDH_HCOUNTER, counter string, ch chan<- Metric) {
+func collectCounterData(queryHandle win.PDH_HQUERY, counterHandle win.PDH_HCOUNTER, counter string, ch chan<- metric) {
 
 	ret := win.PdhCollectQueryData(queryHandle)
 	if ret == win.ERROR_SUCCESS {
-		var metric Metric
+		var m metric
 		var bufSize uint32
 		var bufCount uint32
 		var size = uint32(unsafe.Sizeof(win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE{}))
@@ -110,13 +89,14 @@ func collectCounterData(queryHandle win.PDH_HQUERY, counterHandle win.PDH_HCOUNT
 				for i := 0; i < int(bufCount); i++ {
 					c := filledBuf[i]
 
-					metric = Metric{
+					m = metric{
 						counter,
-						c.FmtValue.DoubleValue,
+						uint64(c.FmtValue.DoubleValue),
+						time.Now(),
 					}
 				}
 			}
 		}
-		ch <- metric
+		ch <- m
 	}
 }
