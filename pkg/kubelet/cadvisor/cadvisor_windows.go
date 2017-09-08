@@ -26,14 +26,14 @@ import (
 )
 
 type cadvisorClient struct {
-	winStatsClient *winstats.Client
+	winStatsClient winstats.Client
 }
 
 var _ Interface = new(cadvisorClient)
 
 // New creates a cAdvisor and exports its API on the specified port if port > 0.
 func New(address string, port uint, imageFsInfoProvider ImageFsInfoProvider, rootPath string) (Interface, error) {
-	client, err := winstats.NewClient(winstats.NewPerfCounterNodeStatsClient())
+	client, err := winstats.NewPerfCounterClient()
 	return &cadvisorClient{winStatsClient: client}, err
 }
 

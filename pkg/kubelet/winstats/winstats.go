@@ -25,13 +25,19 @@ import (
 )
 
 // Client is an object that is used to get stats information.
-type Client struct {
+type Client interface {
+	WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error)
+	WinMachineInfo() (*cadvisorapi.MachineInfo, error)
+	WinVersionInfo() (*cadvisorapi.VersionInfo, error)
+}
+
+type StatsClient struct {
 	winNodeStatsClient
 }
 
 type winNodeStatsClient interface {
 	startMonitoring() error
-	getNodeStats() (*nodeStats, error)
+	getNodeStats() (nodeStats, error)
 	getMachineInfo() (*cadvisorapi.MachineInfo, error)
 	getVersionInfo() (*cadvisorapi.VersionInfo, error)
 }
@@ -48,15 +54,15 @@ type nodeStats struct {
 	memoryCommittedBytes        metric
 	memoryPhysicalCapacityBytes uint64
 	kernelVersion               string
+	lastUpdatedTime             time.Time
 }
 
 // NewClient constructs a Client.
-func NewClient(statsClient winNodeStatsClient) (*Client, error) {
-	client := new(Client)
-	client.winNodeStatsClient = statsClient
+func NewClient(statsNodeClient winNodeStatsClient) (Client, error) {
+	client := new(StatsClient)
+	client.winNodeStatsClient = statsNodeClient
 
 	err := client.startMonitoring()
-
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +72,9 @@ func NewClient(statsClient winNodeStatsClient) (*Client, error) {
 
 // WinContainerInfos returns a map of container infos. The map contains node and
 // pod level stats. Analogous to cadvisor GetContainerInfoV2 method.
-func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
+func (c *StatsClient) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	infos := make(map[string]cadvisorapiv2.ContainerInfo)
 	rootContainerInfo, err := c.createRootContainerInfo()
-
 	if err != nil {
 		return nil, err
 	}
@@ -81,17 +86,17 @@ func (c *Client) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, er
 
 // WinMachineInfo returns a cadvisorapi.MachineInfo with details about the
 // node machine. Analogous to cadvisor MachineInfo method.
-func (c *Client) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
+func (c *StatsClient) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	return c.getMachineInfo()
 }
 
 // WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
 // the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
-func (c *Client) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
+func (c *StatsClient) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	return c.getVersionInfo()
 }
 
-func (c *Client) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error) {
+func (c *StatsClient) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error) {
 	nodeStats, err := c.getNodeStats()
 
 	if err != nil {
@@ -100,7 +105,7 @@ func (c *Client) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error)
 	var stats []*cadvisorapiv2.ContainerStats
 
 	stats = append(stats, &cadvisorapiv2.ContainerStats{
-		Timestamp: nodeStats.cpuUsageCoreNanoSeconds.Timestamp,
+		Timestamp: nodeStats.lastUpdatedTime,
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
 				Total: nodeStats.cpuUsageCoreNanoSeconds.Value,

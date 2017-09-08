@@ -23,7 +23,6 @@ go_library(
         "winstats.go",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows_amd64": [
-            "helpers.go",
             "perfcounter_nodestats.go",
             "perfcounters.go",
         ],

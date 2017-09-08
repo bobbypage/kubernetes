@@ -19,28 +19,34 @@ limitations under the License.
 package winstats
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
+	"github.com/lxn/win"
 )
 
-// PerfCounterNodeStatsClient is a client that provides Windows Stats via PerfCounters
-type PerfCounterNodeStatsClient struct {
+// NewPerfCounterClient creates a client using perf counters
+func NewPerfCounterClient() (Client, error) {
+	return NewClient(&perfCounterNodeStatsClient{})
+}
+
+// perfCounterNodeStatsClient is a client that provides Windows Stats via PerfCounters
+type perfCounterNodeStatsClient struct {
 	nodeStats
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
-// NewPerfCounterNodeStatsClient creates a new client
-func NewPerfCounterNodeStatsClient() *PerfCounterNodeStatsClient {
-	return &PerfCounterNodeStatsClient{}
-}
-
-func (p *PerfCounterNodeStatsClient) startMonitoring() error {
+func (p *perfCounterNodeStatsClient) startMonitoring() error {
 	memory, err := getPhysicallyInstalledSystemMemoryBytes()
+	if err != nil {
+		return err
+	}
 	p.nodeStats.memoryPhysicalCapacityBytes = memory
 
 	version, err := exec.Command("cmd", "/C", "ver").Output()
@@ -49,15 +55,27 @@ func (p *PerfCounterNodeStatsClient) startMonitoring() error {
 	}
 	p.kernelVersion = strings.TrimSpace(string(version))
 
-	errChan := make(chan error, 1)
-	go p.startNodeMonitoring(errChan)
-	err = <-errChan
-	return err
+	cpuChan, err := readPerformanceCounter(cpuQuery)
+	if err != nil {
+		return err
+	}
+
+	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
+	if err != nil {
+		return err
+	}
+
+	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
+	if err != nil {
+		return err
+	}
+
+	go p.startNodeMonitoring(cpuChan, memWorkingSetChan, memCommittedBytesChan)
+	return nil
 }
 
-func (p *PerfCounterNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo, error) {
+func (p *perfCounterNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	hostname, err := os.Hostname()
-
 	if err != nil {
 		return nil, err
 	}
@@ -68,40 +86,19 @@ func (p *PerfCounterNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo,
 		MachineID:      hostname,
 	}, nil
 }
-func (p *PerfCounterNodeStatsClient) getVersionInfo() (*cadvisorapi.VersionInfo, error) {
+func (p *perfCounterNodeStatsClient) getVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	return &cadvisorapi.VersionInfo{
 		KernelVersion: p.kernelVersion,
 	}, nil
 }
 
-func (p *PerfCounterNodeStatsClient) getNodeStats() (*nodeStats, error) {
-	return &p.nodeStats, nil
+func (p *perfCounterNodeStatsClient) getNodeStats() (nodeStats, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.nodeStats, nil
 }
-func (p *PerfCounterNodeStatsClient) startNodeMonitoring(errChan chan error) {
-	cpuChan, err := readPerformanceCounter(cpuQuery)
 
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
-
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
-
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	// no error, send nil over channel
-	errChan <- nil
-
+func (p *perfCounterNodeStatsClient) startNodeMonitoring(cpuChan, memWorkingSetChan, memCommittedBytesChan chan metric) {
 	for {
 		select {
 		case cpu := <-cpuChan:
@@ -111,9 +108,10 @@ func (p *PerfCounterNodeStatsClient) startNodeMonitoring(errChan chan error) {
 		case mCommittedBytes := <-memCommittedBytesChan:
 			p.updateMemoryCommittedBytes(mCommittedBytes)
 		}
+		p.lastUpdatedTime = time.Now()
 	}
 }
-func (p *PerfCounterNodeStatsClient) updateCPU(cpu metric) {
+func (p *perfCounterNodeStatsClient) updateCPU(cpu metric) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -130,14 +128,24 @@ func (p *PerfCounterNodeStatsClient) updateCPU(cpu metric) {
 	}
 }
 
-func (p *PerfCounterNodeStatsClient) updateMemoryWorkingSet(mWorkingSet metric) {
+func (p *perfCounterNodeStatsClient) updateMemoryWorkingSet(mWorkingSet metric) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.memoryPrivWorkingSetBytes = mWorkingSet
 }
 
-func (p *PerfCounterNodeStatsClient) updateMemoryCommittedBytes(mCommittedBytes metric) {
+func (p *perfCounterNodeStatsClient) updateMemoryCommittedBytes(mCommittedBytes metric) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.memoryCommittedBytes = mCommittedBytes
+}
+
+func getPhysicallyInstalledSystemMemoryBytes() (uint64, error) {
+	var physicalMemoryKiloBytes uint64
+
+	if ok := win.GetPhysicallyInstalledSystemMemory(&physicalMemoryKiloBytes); !ok {
+		return 0, errors.New("unable to read physical memory")
+	}
+
+	return physicalMemoryKiloBytes * 1024, nil // convert kilobytes to bytes
 }

@@ -33,8 +33,8 @@ func (f fakeWinNodeStatsClient) startMonitoring() error {
 	return nil
 }
 
-func (f fakeWinNodeStatsClient) getNodeStats() (*nodeStats, error) {
-	return &nodeStats{
+func (f fakeWinNodeStatsClient) getNodeStats() (nodeStats, error) {
+	return nodeStats{
 		cpuUsageCoreNanoSeconds: metric{
 			Name:      "cpuUsage",
 			Value:     123,
@@ -52,6 +52,7 @@ func (f fakeWinNodeStatsClient) getNodeStats() (*nodeStats, error) {
 		},
 		kernelVersion:               "v42",
 		memoryPhysicalCapacityBytes: 1.6e+10,
+		lastUpdatedTime:             timeStamp,
 	}, nil
 }
 
@@ -123,7 +124,7 @@ func TestWinVersionInfo(t *testing.T) {
 		KernelVersion: "v42"})
 }
 
-func getClient(t *testing.T) *Client {
+func getClient(t *testing.T) Client {
 	f := fakeWinNodeStatsClient{}
 	c, err := NewClient(f)
 	assert.NoError(t, err)
