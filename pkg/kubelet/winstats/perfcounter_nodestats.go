@@ -27,19 +27,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/lxn/win"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // NewPerfCounterClient creates a client using perf counters
 func NewPerfCounterClient() (Client, error) {
-	return NewClient(&perfCounterNodeStatsClient{})
+	return newClient(&perfCounterNodeStatsClient{})
 }
 
 // perfCounterNodeStatsClient is a client that provides Windows Stats via PerfCounters
 type perfCounterNodeStatsClient struct {
-	nodeStats
-	mu sync.RWMutex
+	nodeMetrics
+	mu sync.RWMutex // mu protects nodeMetrics
+	nodeInfo
 }
 
 func (p *perfCounterNodeStatsClient) startMonitoring() error {
@@ -47,30 +50,38 @@ func (p *perfCounterNodeStatsClient) startMonitoring() error {
 	if err != nil {
 		return err
 	}
-	p.nodeStats.memoryPhysicalCapacityBytes = memory
 
 	version, err := exec.Command("cmd", "/C", "ver").Output()
 	if err != nil {
 		return err
 	}
-	p.kernelVersion = strings.TrimSpace(string(version))
 
-	cpuChan, err := readPerformanceCounter(cpuQuery)
+	kernelVersion := strings.TrimSpace(string(version))
+	p.nodeInfo = nodeInfo{
+		kernelVersion:               kernelVersion,
+		memoryPhysicalCapacityBytes: memory,
+		startTime:                   time.Now(),
+	}
+
+	cpuCounter, err := newPerfCounter(cpuQuery)
 	if err != nil {
 		return err
 	}
 
-	memWorkingSetChan, err := readPerformanceCounter(memoryPrivWorkingSetQuery)
+	memWorkingSetCounter, err := newPerfCounter(memoryPrivWorkingSetQuery)
 	if err != nil {
 		return err
 	}
 
-	memCommittedBytesChan, err := readPerformanceCounter(memoryCommittedBytesQuery)
+	memCommittedBytesCounter, err := newPerfCounter(memoryCommittedBytesQuery)
 	if err != nil {
 		return err
 	}
 
-	go p.startNodeMonitoring(cpuChan, memWorkingSetChan, memCommittedBytesChan)
+	go wait.Forever(func() {
+		p.collectMetricsData(cpuCounter, memWorkingSetCounter, memCommittedBytesCounter)
+	}, perfCounterUpdatePeriod)
+
 	return nil
 }
 
@@ -82,62 +93,63 @@ func (p *perfCounterNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo,
 
 	return &cadvisorapi.MachineInfo{
 		NumCores:       runtime.NumCPU(),
-		MemoryCapacity: p.memoryPhysicalCapacityBytes,
+		MemoryCapacity: p.nodeInfo.memoryPhysicalCapacityBytes,
 		MachineID:      hostname,
 	}, nil
 }
+
 func (p *perfCounterNodeStatsClient) getVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	return &cadvisorapi.VersionInfo{
-		KernelVersion: p.kernelVersion,
+		KernelVersion: p.nodeInfo.kernelVersion,
 	}, nil
 }
 
-func (p *perfCounterNodeStatsClient) getNodeStats() (nodeStats, error) {
+func (p *perfCounterNodeStatsClient) getNodeMetrics() (nodeMetrics, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.nodeStats, nil
+	return p.nodeMetrics, nil
 }
 
-func (p *perfCounterNodeStatsClient) startNodeMonitoring(cpuChan, memWorkingSetChan, memCommittedBytesChan chan metric) {
-	for {
-		select {
-		case cpu := <-cpuChan:
-			p.updateCPU(cpu)
-		case mWorkingSet := <-memWorkingSetChan:
-			p.updateMemoryWorkingSet(mWorkingSet)
-		case mCommittedBytes := <-memCommittedBytesChan:
-			p.updateMemoryCommittedBytes(mCommittedBytes)
-		}
-		p.lastUpdatedTime = time.Now()
-	}
+func (p *perfCounterNodeStatsClient) getNodeInfo() nodeInfo {
+	return p.nodeInfo
 }
-func (p *perfCounterNodeStatsClient) updateCPU(cpu metric) {
+
+func (p *perfCounterNodeStatsClient) collectMetricsData(cpuCounter, memWorkingSetCounter, memCommittedBytesCounter *perfCounter) {
+	cpuValue, err := cpuCounter.getData()
+	if err != nil {
+		glog.Errorf("Unable to get cpu perf counter data; err: %v", err)
+		return
+	}
+
+	memWorkingSetValue, err := memWorkingSetCounter.getData()
+	if err != nil {
+		glog.Errorf("Unable to get memWorkingSet perf counter data; err: %v", err)
+		return
+	}
+
+	memCommittedBytesValue, err := memCommittedBytesCounter.getData()
+	if err != nil {
+		glog.Errorf("Unable to get memCommittedBytes perf counter data; err: %v", err)
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.nodeMetrics = nodeMetrics{
+		cpuUsageCoreNanoSeconds:   p.convertCPUValue(cpuValue),
+		memoryPrivWorkingSetBytes: memWorkingSetValue,
+		memoryCommittedBytes:      memCommittedBytesValue,
+		timeStamp:                 time.Now(),
+	}
+}
 
+func (p *perfCounterNodeStatsClient) convertCPUValue(cpuValue uint64) uint64 {
 	cpuCores := runtime.NumCPU()
 	// This converts perf counter data which is cpu percentage for all cores into nanoseconds.
 	// The formula is (cpuPercentage / 100.0) * #cores * 1e+9 (nano seconds). More info here:
 	// https://github.com/kubernetes/heapster/issues/650
-	newValue := p.cpuUsageCoreNanoSeconds.Value + uint64((float64(cpu.Value)/100.0)*float64(cpuCores)*1000000000)
-
-	p.cpuUsageCoreNanoSeconds = metric{
-		Name:      cpu.Name,
-		Value:     newValue,
-		Timestamp: cpu.Timestamp,
-	}
-}
-
-func (p *perfCounterNodeStatsClient) updateMemoryWorkingSet(mWorkingSet metric) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.memoryPrivWorkingSetBytes = mWorkingSet
-}
-
-func (p *perfCounterNodeStatsClient) updateMemoryCommittedBytes(mCommittedBytes metric) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.memoryCommittedBytes = mCommittedBytes
+	newValue := p.nodeMetrics.cpuUsageCoreNanoSeconds + uint64((float64(cpuValue)/100.0)*float64(cpuCores)*1e9)
+	return newValue
 }
 
 func getPhysicallyInstalledSystemMemoryBytes() (uint64, error) {

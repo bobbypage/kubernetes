@@ -25,7 +25,6 @@ import (
 	"unsafe"
 
 	"github.com/lxn/win"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -37,8 +36,12 @@ const (
 	perfCounterUpdatePeriod = 1 * time.Second
 )
 
-func readPerformanceCounter(counter string) (chan metric, error) {
+type perfCounter struct {
+	queryHandle   win.PDH_HQUERY
+	counterHandle win.PDH_HCOUNTER
+}
 
+func newPerfCounter(counter string) (*perfCounter, error) {
 	var queryHandle win.PDH_HQUERY
 	var counterHandle win.PDH_HCOUNTER
 
@@ -62,43 +65,38 @@ func readPerformanceCounter(counter string) (chan metric, error) {
 		return nil, fmt.Errorf("unable to collect data from counter. Error code is %x", ret)
 	}
 
-	out := make(chan metric)
-
-	go wait.Forever(func() {
-		collectCounterData(queryHandle, counterHandle, counter, out)
-	}, perfCounterUpdatePeriod)
-
-	return out, nil
+	return &perfCounter{
+		queryHandle:   queryHandle,
+		counterHandle: counterHandle,
+	}, nil
 }
 
-func collectCounterData(queryHandle win.PDH_HQUERY, counterHandle win.PDH_HCOUNTER, counter string, ch chan<- metric) {
-	ret := win.PdhCollectQueryData(queryHandle)
-
+func (p *perfCounter) getData() (uint64, error) {
+	ret := win.PdhCollectQueryData(p.queryHandle)
 	if ret != win.ERROR_SUCCESS {
-		return
+		return 0, fmt.Errorf("unable to collect data from counter. Error code is %x", ret)
 	}
 
-	var m metric
-	var bufSize uint32
-	var bufCount uint32
+	var bufSize, bufCount uint32
 	var size = uint32(unsafe.Sizeof(win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE{}))
 	var emptyBuf [1]win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE // need at least 1 addressable null ptr.
+	var data uint64
 
-	ret = win.PdhGetFormattedCounterArrayDouble(counterHandle, &bufSize, &bufCount, &emptyBuf[0])
-	if ret == win.PDH_MORE_DATA {
-		filledBuf := make([]win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE, bufCount*size)
-		ret = win.PdhGetFormattedCounterArrayDouble(counterHandle, &bufSize, &bufCount, &filledBuf[0])
-		if ret == win.ERROR_SUCCESS {
-			for i := 0; i < int(bufCount); i++ {
-				c := filledBuf[i]
-
-				m = metric{
-					counter,
-					uint64(c.FmtValue.DoubleValue),
-					time.Now(),
-				}
-			}
-		}
-		ch <- m
+	ret = win.PdhGetFormattedCounterArrayDouble(p.counterHandle, &bufSize, &bufCount, &emptyBuf[0])
+	if ret != win.PDH_MORE_DATA {
+		return 0, fmt.Errorf("unable to collect data from counter. Error code is %x", ret)
 	}
+
+	filledBuf := make([]win.PDH_FMT_COUNTERVALUE_ITEM_DOUBLE, bufCount*size)
+	ret = win.PdhGetFormattedCounterArrayDouble(p.counterHandle, &bufSize, &bufCount, &filledBuf[0])
+	if ret != win.ERROR_SUCCESS {
+		return 0, fmt.Errorf("unable to collect data from counter. Error code is %x", ret)
+	}
+
+	for i := 0; i < int(bufCount); i++ {
+		c := filledBuf[i]
+		data = uint64(c.FmtValue.DoubleValue)
+	}
+
+	return data, nil
 }

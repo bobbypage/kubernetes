@@ -24,55 +24,56 @@ import (
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
 )
 
-// Client is an object that is used to get stats information.
+// Client is an interface that is used to get stats information.
 type Client interface {
 	WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error)
 	WinMachineInfo() (*cadvisorapi.MachineInfo, error)
 	WinVersionInfo() (*cadvisorapi.VersionInfo, error)
 }
 
-type StatsClient struct {
-	winNodeStatsClient
+// StatsClient is a client that implements the Client interface
+type statsClient struct {
+	client winNodeStatsClient
 }
 
 type winNodeStatsClient interface {
 	startMonitoring() error
-	getNodeStats() (nodeStats, error)
+	getNodeMetrics() (nodeMetrics, error)
+	getNodeInfo() nodeInfo
 	getMachineInfo() (*cadvisorapi.MachineInfo, error)
 	getVersionInfo() (*cadvisorapi.VersionInfo, error)
 }
 
-type metric struct {
-	Name      string
-	Value     uint64
-	Timestamp time.Time
+type nodeMetrics struct {
+	cpuUsageCoreNanoSeconds   uint64
+	memoryPrivWorkingSetBytes uint64
+	memoryCommittedBytes      uint64
+	timeStamp                 time.Time
 }
 
-type nodeStats struct {
-	cpuUsageCoreNanoSeconds     metric
-	memoryPrivWorkingSetBytes   metric
-	memoryCommittedBytes        metric
+type nodeInfo struct {
 	memoryPhysicalCapacityBytes uint64
 	kernelVersion               string
-	lastUpdatedTime             time.Time
+	// startTime is the time when the node was started
+	startTime time.Time
 }
 
-// NewClient constructs a Client.
-func NewClient(statsNodeClient winNodeStatsClient) (Client, error) {
-	client := new(StatsClient)
-	client.winNodeStatsClient = statsNodeClient
+// newClient constructs a Client.
+func newClient(statsNodeClient winNodeStatsClient) (Client, error) {
+	statsClient := new(statsClient)
+	statsClient.client = statsNodeClient
 
-	err := client.startMonitoring()
+	err := statsClient.client.startMonitoring()
 	if err != nil {
 		return nil, err
 	}
 
-	return client, nil
+	return statsClient, nil
 }
 
 // WinContainerInfos returns a map of container infos. The map contains node and
 // pod level stats. Analogous to cadvisor GetContainerInfoV2 method.
-func (c *StatsClient) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
+func (c *statsClient) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInfo, error) {
 	infos := make(map[string]cadvisorapiv2.ContainerInfo)
 	rootContainerInfo, err := c.createRootContainerInfo()
 	if err != nil {
@@ -86,18 +87,18 @@ func (c *StatsClient) WinContainerInfos() (map[string]cadvisorapiv2.ContainerInf
 
 // WinMachineInfo returns a cadvisorapi.MachineInfo with details about the
 // node machine. Analogous to cadvisor MachineInfo method.
-func (c *StatsClient) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
-	return c.getMachineInfo()
+func (c *statsClient) WinMachineInfo() (*cadvisorapi.MachineInfo, error) {
+	return c.client.getMachineInfo()
 }
 
 // WinVersionInfo returns a  cadvisorapi.VersionInfo with version info of
 // the kernel and docker runtime. Analogous to cadvisor VersionInfo method.
-func (c *StatsClient) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
-	return c.getVersionInfo()
+func (c *statsClient) WinVersionInfo() (*cadvisorapi.VersionInfo, error) {
+	return c.client.getVersionInfo()
 }
 
-func (c *StatsClient) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error) {
-	nodeStats, err := c.getNodeStats()
+func (c *statsClient) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, error) {
+	nodeMetrics, err := c.client.getNodeMetrics()
 
 	if err != nil {
 		return nil, err
@@ -105,24 +106,26 @@ func (c *StatsClient) createRootContainerInfo() (*cadvisorapiv2.ContainerInfo, e
 	var stats []*cadvisorapiv2.ContainerStats
 
 	stats = append(stats, &cadvisorapiv2.ContainerStats{
-		Timestamp: nodeStats.lastUpdatedTime,
+		Timestamp: nodeMetrics.timeStamp,
 		Cpu: &cadvisorapi.CpuStats{
 			Usage: cadvisorapi.CpuUsage{
-				Total: nodeStats.cpuUsageCoreNanoSeconds.Value,
+				Total: nodeMetrics.cpuUsageCoreNanoSeconds,
 			},
 		},
 		Memory: &cadvisorapi.MemoryStats{
-			WorkingSet: nodeStats.memoryPrivWorkingSetBytes.Value,
-			Usage:      nodeStats.memoryCommittedBytes.Value,
+			WorkingSet: nodeMetrics.memoryPrivWorkingSetBytes,
+			Usage:      nodeMetrics.memoryCommittedBytes,
 		},
 	})
 
+	nodeInfo := c.client.getNodeInfo()
 	rootInfo := cadvisorapiv2.ContainerInfo{
 		Spec: cadvisorapiv2.ContainerSpec{
-			HasCpu:    true,
-			HasMemory: true,
+			CreationTime: nodeInfo.startTime,
+			HasCpu:       true,
+			HasMemory:    true,
 			Memory: cadvisorapiv2.MemorySpec{
-				Limit: nodeStats.memoryPhysicalCapacityBytes,
+				Limit: nodeInfo.memoryPhysicalCapacityBytes,
 			},
 		},
 		Stats: stats,

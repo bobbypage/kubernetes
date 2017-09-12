@@ -33,29 +33,21 @@ func (f fakeWinNodeStatsClient) startMonitoring() error {
 	return nil
 }
 
-func (f fakeWinNodeStatsClient) getNodeStats() (nodeStats, error) {
-	return nodeStats{
-		cpuUsageCoreNanoSeconds: metric{
-			Name:      "cpuUsage",
-			Value:     123,
-			Timestamp: timeStamp,
-		},
-		memoryPrivWorkingSetBytes: metric{
-			Name:      "memoryPrivateWorkingSetBytes",
-			Value:     1234,
-			Timestamp: timeStamp,
-		},
-		memoryCommittedBytes: metric{
-			Name:      "memoryCommittedBytes",
-			Value:     12345,
-			Timestamp: timeStamp,
-		},
-		kernelVersion:               "v42",
-		memoryPhysicalCapacityBytes: 1.6e+10,
-		lastUpdatedTime:             timeStamp,
+func (f fakeWinNodeStatsClient) getNodeMetrics() (nodeMetrics, error) {
+	return nodeMetrics{
+		cpuUsageCoreNanoSeconds:   123,
+		memoryPrivWorkingSetBytes: 1234,
+		memoryCommittedBytes:      12345,
+		timeStamp:                 timeStamp,
 	}, nil
 }
 
+func (f fakeWinNodeStatsClient) getNodeInfo() nodeInfo {
+	return nodeInfo{
+		kernelVersion:               "v42",
+		memoryPhysicalCapacityBytes: 1.6e+10,
+	}
+}
 func (f fakeWinNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo, error) {
 	return &cadvisorapi.MachineInfo{
 		NumCores:       4,
@@ -126,7 +118,7 @@ func TestWinVersionInfo(t *testing.T) {
 
 func getClient(t *testing.T) Client {
 	f := fakeWinNodeStatsClient{}
-	c, err := NewClient(f)
+	c, err := newClient(f)
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 	return c
