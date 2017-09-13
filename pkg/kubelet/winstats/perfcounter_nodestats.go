@@ -56,9 +56,11 @@ func (p *perfCounterNodeStatsClient) startMonitoring() error {
 		return err
 	}
 
-	kernelVersion := strings.TrimSpace(string(version))
+	osImageVersion := strings.TrimSpace(string(version))
+	kernelVersion := extractVersionNumber(osImageVersion)
 	p.nodeInfo = nodeInfo{
 		kernelVersion:               kernelVersion,
+		osImageVersion:              osImageVersion,
 		memoryPhysicalCapacityBytes: memory,
 		startTime:                   time.Now(),
 	}
@@ -100,7 +102,8 @@ func (p *perfCounterNodeStatsClient) getMachineInfo() (*cadvisorapi.MachineInfo,
 
 func (p *perfCounterNodeStatsClient) getVersionInfo() (*cadvisorapi.VersionInfo, error) {
 	return &cadvisorapi.VersionInfo{
-		KernelVersion: p.nodeInfo.kernelVersion,
+		KernelVersion:      p.nodeInfo.kernelVersion,
+		ContainerOsVersion: p.nodeInfo.osImageVersion,
 	}, nil
 }
 
