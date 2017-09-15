@@ -136,5 +136,32 @@ func (r *RemoteImageService) RemoveImage(image *runtimeapi.ImageSpec) error {
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (r *RemoteImageService) ImageFsInfo(req *runtimeapi.ImageFsInfoRequest) (*runtimeapi.ImageFsInfoResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+	glog.Infof("DAPO REMOTEIMAGE IMAGEFSINFO")
+	//return nil, fmt.Errorf("not implemented")
+
+	var filesystems []*runtimeapi.FilesystemUsage
+
+	//type FilesystemUsage struct {
+	//// Timestamp in nanoseconds at which the information were collected. Must be > 0.
+	//Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	//// The underlying storage of the filesystem.
+	//StorageId *StorageIdentifier `protobuf:"bytes,2,opt,name=storage_id,json=storageId" json:"storage_id,omitempty"`
+	//// UsedBytes represents the bytes used for images on the filesystem.
+	//// This may differ from the total bytes used on the filesystem and may not
+	//// equal CapacityBytes - AvailableBytes.
+	//UsedBytes *UInt64Value `protobuf:"bytes,3,opt,name=used_bytes,json=usedBytes" json:"used_bytes,omitempty"`
+	//// InodesUsed represents the inodes used by the images.
+	//// This may not equal InodesCapacity - InodesAvailable because the underlying
+	//// filesystem may also be used for purposes other than storing images.
+	//InodesUsed *UInt64Value `protobuf:"bytes,4,opt,name=inodes_used,json=inodesUsed" json:"inodes_used,omitempty"`
+	//}
+	filesystems = append(filesystems, &runtimeapi.FilesystemUsage{
+		Timestamp:  time.Now().UnixNano(),
+		UsedBytes:  &runtimeapi.UInt64Value{Value: 0},
+		InodesUsed: &runtimeapi.UInt64Value{Value: 0},
+	})
+
+	return &runtimeapi.ImageFsInfoResponse{
+		ImageFilesystems: filesystems,
+	}, nil
 }

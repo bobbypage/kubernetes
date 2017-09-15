@@ -17,9 +17,9 @@ limitations under the License.
 package remote
 
 import (
-	"fmt"
 	"time"
 
+	"github.com/golang/glog"
 	"golang.org/x/net/context"
 
 	internalapi "k8s.io/kubernetes/pkg/kubelet/apis/cri"
@@ -226,7 +226,13 @@ func (d *dockerService) RemoveImage(ctx context.Context, r *runtimeapi.RemoveIma
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (d *dockerService) ImageFsInfo(ctx context.Context, r *runtimeapi.ImageFsInfoRequest) (*runtimeapi.ImageFsInfoResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+	glog.Infof("DAPO DOCKERSERVICE_ImageFSInfo")
+	response, err := d.imageService.ImageFsInfo(r)
+	if err != nil {
+		glog.Infof("DAPO DOCKERSERVICE_ImageFSInfo %v", err)
+		return nil, err
+	}
+	return response, nil
 }
 
 func (d *dockerService) ContainerStats(ctx context.Context, r *runtimeapi.ContainerStatsRequest) (*runtimeapi.ContainerStatsResponse, error) {

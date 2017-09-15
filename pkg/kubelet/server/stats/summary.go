@@ -60,10 +60,13 @@ func (sp *summaryProviderImpl) Get() (*statsapi.Summary, error) {
 	}
 	imageFsStats, err := sp.provider.ImageFsStats()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get imageFs stats: %v", err)
+		glog.Infof("DAPO FAILED TO IMAGE FS %v", err)
+		//return nil, fmt.Errorf("failed to get imageFs stats: %v", err)
 	}
 	podStats, err := sp.provider.ListPodStats()
+	glog.Infof("DAPO Calling ListPodStats")
 	if err != nil {
+		glog.Infof("DAPO ListPodStats ERROR, %v", err)
 		return nil, fmt.Errorf("failed to list pod stats: %v", err)
 	}
 
