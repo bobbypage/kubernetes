@@ -22,7 +22,6 @@ import (
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/golang/glog"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/dockershim/libdocker"
 )
@@ -135,9 +134,7 @@ func getImageRef(client libdocker.Interface, image string) (string, error) {
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (ds *dockerService) ImageFsInfo(req *runtimeapi.ImageFsInfoRequest) (*runtimeapi.ImageFsInfoResponse, error) {
-	//return nil, fmt.Errorf("not implemented")
-	glog.Infof("DAPO DOCKERSERVICE IMAGEFSINFO")
-	return &runtimeapi.ImageFsInfoResponse{}, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 func filterHTTPError(err error, image string) error {
