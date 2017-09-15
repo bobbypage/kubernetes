@@ -17,7 +17,7 @@ limitations under the License.
 package remote
 
 import (
-	"fmt"
+	//"fmt"
 	"golang.org/x/net/context"
 	"time"
 
@@ -225,7 +225,11 @@ func (d *dockerService) RemoveImage(ctx context.Context, r *runtimeapi.RemoveIma
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (d *dockerService) ImageFsInfo(ctx context.Context, r *runtimeapi.ImageFsInfoRequest) (*runtimeapi.ImageFsInfoResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+	return d.imageService.ImageFsInfo(r)
+	//if err != nil {
+	//return nil, err
+	//}
+	//return nil, fmt.Errorf("not implemented")
 }
 
 func (d *dockerService) ContainerStats(ctx context.Context, r *runtimeapi.ContainerStatsRequest) (*runtimeapi.ContainerStatsResponse, error) {

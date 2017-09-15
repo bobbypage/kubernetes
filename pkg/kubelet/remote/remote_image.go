@@ -139,7 +139,7 @@ func (r *RemoteImageService) ImageFsInfo(req *runtimeapi.ImageFsInfoRequest) (*r
 	glog.Infof("DAPO REMOTEIMAGE IMAGEFSINFO")
 	//return nil, fmt.Errorf("not implemented")
 
-	var filesystems []*runtimeapi.FilesystemUsage
+	//var filesystems []*runtimeapi.FilesystemUsage
 
 	//type FilesystemUsage struct {
 	//// Timestamp in nanoseconds at which the information were collected. Must be > 0.
@@ -155,13 +155,27 @@ func (r *RemoteImageService) ImageFsInfo(req *runtimeapi.ImageFsInfoRequest) (*r
 	//// filesystem may also be used for purposes other than storing images.
 	//InodesUsed *UInt64Value `protobuf:"bytes,4,opt,name=inodes_used,json=inodesUsed" json:"inodes_used,omitempty"`
 	//}
-	filesystems = append(filesystems, &runtimeapi.FilesystemUsage{
-		Timestamp:  time.Now().UnixNano(),
-		UsedBytes:  &runtimeapi.UInt64Value{Value: 0},
-		InodesUsed: &runtimeapi.UInt64Value{Value: 0},
-	})
+	//filesystems = append(filesystems, &runtimeapi.FilesystemUsage{
+	//Timestamp:  time.Now().UnixNano(),
+	//UsedBytes:  &runtimeapi.UInt64Value{Value: 0},
+	//InodesUsed: &runtimeapi.UInt64Value{Value: 0},
+	//})
 
-	return &runtimeapi.ImageFsInfoResponse{
-		ImageFilesystems: filesystems,
-	}, nil
+	//return &runtimeapi.ImageFsInfoResponse{
+	//ImageFilesystems: filesystems,
+	//}, nil
+
+	ctx, cancel := getContextWithTimeout(r.timeout)
+	defer cancel()
+
+	response, err := r.imageClient.ImageFsInfo(ctx, &runtimeapi.ImageFsInfoRequest{})
+
+	//_, err := r.imageClient.RemoveImage(ctx, &runtimeapi.RemoveImageRequest{
+	//Image: image,
+	//})
+	if err != nil {
+		glog.Errorf("Error ImageFSInfo %v", err)
+		return nil, err
+	}
+	return response, nil
 }

@@ -18,12 +18,13 @@ package dockershim
 
 import (
 	"fmt"
-	"net/http"
-
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/jsonmessage"
+	//"github.com/golang/glog"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/dockershim/libdocker"
+	"net/http"
+	"time"
 )
 
 // This file implements methods in ImageManagerService.
@@ -134,7 +135,18 @@ func getImageRef(client libdocker.Interface, image string) (string, error) {
 
 // ImageFsInfo returns information of the filesystem that is used to store images.
 func (ds *dockerService) ImageFsInfo(req *runtimeapi.ImageFsInfoRequest) (*runtimeapi.ImageFsInfoResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+	var filesystems []*runtimeapi.FilesystemUsage
+
+	filesystems = append(filesystems, &runtimeapi.FilesystemUsage{
+		Timestamp:  time.Now().UnixNano(),
+		UsedBytes:  &runtimeapi.UInt64Value{Value: 0},
+		InodesUsed: &runtimeapi.UInt64Value{Value: 0},
+	})
+
+	return &runtimeapi.ImageFsInfoResponse{
+		ImageFilesystems: filesystems,
+	}, nil
+	//return nil, fmt.Errorf("not implemented")
 }
 
 func filterHTTPError(err error, image string) error {
