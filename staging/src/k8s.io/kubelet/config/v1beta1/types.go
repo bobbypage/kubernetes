@@ -803,6 +803,10 @@ type KubeletConfiguration struct {
 	// Default: true
 	// +optional
 	EnableSystemLogHandler *bool `json:"enableSystemLogHandler,omitempty"`
+    // ShutdownGracePeriod is default grace period for shutdown.
+	// Default: "30s"
+	// +optional
+	ShutdownGracePeriod metav1.Duration `json:"shutdownGracePeriod,omitempty"`
 }
 
 type KubeletAuthorizationMode string

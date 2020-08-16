@@ -805,6 +805,12 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	// since this relies on the rest of the Kubelet having been constructed.
 	klet.setNodeStatusFuncs = klet.defaultNodeStatusFuncs()
 
+	klog.Infof("porterdavid: starting!")
+	err = klet.startShutdownInhibitor(klet.GetActivePods, killPodNow(klet.podWorkers, kubeDeps.Recorder))
+
+	if err != nil {
+		klog.Infof("porterdavid: failure starting %v", err)
+	}
 	return klet, nil
 }
 
@@ -1417,6 +1423,7 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 	// Start the pod lifecycle event generator.
 	kl.pleg.Start()
 	kl.syncLoop(updates, kl)
+
 }
 
 // syncPod is the transaction script for the sync of a single pod.

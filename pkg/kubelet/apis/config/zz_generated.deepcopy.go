@@ -186,6 +186,7 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
 		copy(*out, *in)
 	}
 	out.Logging = in.Logging
+	out.ShutdownGracePeriod = in.ShutdownGracePeriod
 	return
 }
 

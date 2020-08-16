@@ -363,6 +363,8 @@ type KubeletConfiguration struct {
 	Logging componentbaseconfig.LoggingConfiguration
 	// EnableSystemLogHandler enables /logs handler.
 	EnableSystemLogHandler bool
+	// ShutdownGracePeriodDuration
+	ShutdownGracePeriod metav1.Duration
 }
 
 // KubeletAuthorizationMode denotes the authorization mode for the kubelet
