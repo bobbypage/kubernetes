@@ -363,7 +363,9 @@ type KubeletConfiguration struct {
 	Logging componentbaseconfig.LoggingConfiguration
 	// EnableSystemLogHandler enables /logs handler.
 	EnableSystemLogHandler bool
-	// ShutdownGracePeriodDuration
+	// ShutdownGracePeriodDuration specifies the duration that the node should
+	// delay the shutdown and total grace period for pod termination during a
+	// node shutdown.
 	ShutdownGracePeriod metav1.Duration
 }
 

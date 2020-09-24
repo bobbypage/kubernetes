@@ -11,6 +11,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
+	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/utils/integer"
 )
 
@@ -109,23 +110,24 @@ func (info *dBusCon) processShutdownEvent(getPodsFunc eviction.ActivePodsFunc, k
 
 	activePods := getPodsFunc()
 
+	criticalPodGracePeriod := time.Duration(2) * time.Second
+	nonCriticalPodGracePeriod := shutdownDuration - criticalPodGracePeriod
+
+	klog.Infof("porterdavid: processShutdownEvent systemGracePeriod: %v ; nonSystemGracePeriod: %v", criticalPodGracePeriod, nonCriticalPodGracePeriod)
+
 	var wg sync.WaitGroup
-
-	// TODO check if shutdownDuration >= 3
-	systemGracePeriod := time.Duration(3) * time.Second
-	nonSystemGracePeriod := shutdownDuration - systemGracePeriod
-
-	klog.Infof("porterdavid: processShutdownEvent systemGracePeriod: %v ; nonSystemGracePeriod: %v", systemGracePeriod, nonSystemGracePeriod)
-
 	for _, pod := range activePods {
 		go func(pod *v1.Pod) {
 			defer wg.Done()
 
-			var gracePeriodOverride int64 = int64(nonSystemGracePeriod.Seconds())
-			if pod.Namespace == "kube-system" {
-				time.Sleep(nonSystemGracePeriod)
-				gracePeriodOverride = int64(systemGracePeriod.Seconds())
+			var gracePeriodOverride int64
+			if kubelettypes.IsCriticalPod(pod) {
+				gracePeriodOverride = int64(criticalPodGracePeriod.Seconds())
+				time.Sleep(nonCriticalPodGracePeriod)
+			} else {
+				gracePeriodOverride = int64(nonCriticalPodGracePeriod.Seconds())
 			}
+
 			klog.Infof("porterdavid: killing pod %v gracePeriod: %v", pod.Name, gracePeriodOverride)
 
 			status := v1.PodStatus{
@@ -142,7 +144,6 @@ func (info *dBusCon) processShutdownEvent(getPodsFunc eviction.ActivePodsFunc, k
 		}(pod)
 		wg.Add(1)
 	}
-
 	wg.Wait()
 
 	return nil
