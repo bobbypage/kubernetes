@@ -1,5 +1,5 @@
 /*
-Copyright 2015 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,6 +14,5 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kubelet is the package that contains the libraries that drive the Kubelet binary.
-// The kubelet is responsible for node level pod management.  It runs on each worker in the cluster.
-package systemd // import "k8s.io/kubernetes/pkg/kubelet"
+// Package systemd provides utility functions for kubelet to perform systemd related operations.
+package systemd

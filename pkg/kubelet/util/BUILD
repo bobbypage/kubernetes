@@ -46,7 +46,6 @@ go_library(
     srcs = [
         "boottime_util_darwin.go",
         "boottime_util_linux.go",
-        "doc.go",
         "nodelease.go",
         "util.go",
         "util_unix.go",
