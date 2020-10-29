@@ -25,6 +25,8 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"github.com/godbus/dbus/v5"
 	"k8s.io/klog/v2"
 )
@@ -111,7 +113,6 @@ func (bus *DBusCon) ReloadLogindConf() error {
 	who := "all"
 	var signal int32 = 1 // SIGHUP
 
-	// TODO(bobbypage): Consider using CallWithContext here instead
 	call := obj.Call(systemdInterface+".KillUnit", 0, unit, who, signal)
 	if call.Err != nil {
 		return fmt.Errorf("unable to reload logind conf: %v", call.Err)
@@ -155,11 +156,16 @@ func (bus *DBusCon) MonitorShutdown() (<-chan bool, error) {
 	return shutdownChan, nil
 }
 
+const (
+	LogindConfigDirectory = "/etc/systemd/logind.conf.d/"
+	KubeletLogindConf     = "kubelet.conf"
+)
+
 // OverrideSystemdInhibitDelay writes a config file to logind overriding InhibitDelayMaxSec to the value desired.
 func OverrideSystemdInhibitDelay(inhibitDelayMax time.Duration) error {
-	err := os.MkdirAll("/etc/systemd/logind.conf.d/", 0755)
+	err := os.MkdirAll(LogindConfigDirectory, 0755)
 	if err != nil {
-		klog.Error(err)
+		return fmt.Errorf("failed creating %v directory: %v", LogindConfigDirectory, err)
 	}
 
 	inhibitOverride := fmt.Sprintf(`# Kubelet logind override
@@ -167,8 +173,9 @@ func OverrideSystemdInhibitDelay(inhibitDelayMax time.Duration) error {
     InhibitDelayMaxSec=%.0f
     `, inhibitDelayMax.Seconds())
 
-	if err := ioutil.WriteFile("/etc/systemd/logind.conf.d/kubelet.conf", []byte(inhibitOverride), 0755); err != nil {
-		return err
+	logindOverridePath := filepath.Join(LogindConfigDirectory, KubeletLogindConf)
+	if err := ioutil.WriteFile(logindOverridePath, []byte(inhibitOverride), 0755); err != nil {
+		return fmt.Errorf("failed writing logind shutdown inhibit override file %v: %v", logindOverridePath, err)
 	}
 
 	return nil

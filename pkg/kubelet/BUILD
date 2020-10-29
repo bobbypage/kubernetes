@@ -23,7 +23,8 @@ go_library(
         "kubelet_node_status_windows.go",
         "kubelet_pods.go",
         "kubelet_resources.go",
-        "kubelet_shutdown.go",
+        "kubelet_shutdown_linux.go",
+        "kubelet_shutdown_others.go",
         "kubelet_volumes.go",
         "pod_container_deletor.go",
         "pod_sandbox_deleter.go",
@@ -90,7 +91,6 @@ go_library(
         "//pkg/kubelet/stats:go_default_library",
         "//pkg/kubelet/status:go_default_library",
         "//pkg/kubelet/sysctl:go_default_library",
-        "//pkg/kubelet/systemd:go_default_library",
         "//pkg/kubelet/token:go_default_library",
         "//pkg/kubelet/types:go_default_library",
         "//pkg/kubelet/util:go_default_library",
@@ -150,7 +150,6 @@ go_library(
         "//staging/src/k8s.io/kubelet/pkg/apis/stats/v1alpha1:go_default_library",
         "//staging/src/k8s.io/mount-utils:go_default_library",
         "//third_party/forked/golang/expansion:go_default_library",
-        "//vendor/github.com/godbus/dbus/v5:go_default_library",
         "//vendor/github.com/golang/groupcache/lru:go_default_library",
         "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
         "//vendor/github.com/google/cadvisor/info/v2:go_default_library",
@@ -161,9 +160,13 @@ go_library(
         "//vendor/k8s.io/utils/strings:go_default_library",
     ] + select({
         "@io_bazel_rules_go//go/platform:android": [
+            "//pkg/kubelet/systemd:go_default_library",
+            "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
         "@io_bazel_rules_go//go/platform:linux": [
+            "//pkg/kubelet/systemd:go_default_library",
+            "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
         "@io_bazel_rules_go//go/platform:windows": [
