@@ -41,6 +41,9 @@ func (kl *Kubelet) startShutdownInhibitor(getPodsFunc eviction.ActivePodsFunc, k
 	shutdownGracePeriodDuration := kl.kubeletConfiguration.ShutdownGracePeriod.Duration
 	klog.Infof("porterdavid shutdownGracePeriodDuration: %v", shutdownGracePeriodDuration)
 
+	shutdownGracePeriodCriticalPodsDuration := kl.kubeletConfiguration.ShutdownGracePeriodCriticalPods.Duration
+	klog.Infof("porterdavid shutdownGracePeriodCriticalPodsDuration: %v", shutdownGracePeriodCriticalPodsDuration)
+
 	if shutdownGracePeriodDuration == 0 {
 		klog.V(0).Info("shutdown duration was zero, skipping shutdown inhibit setup")
 		return nil

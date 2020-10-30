@@ -811,7 +811,7 @@ type KubeletConfiguration struct {
 	// For example, if ShutdownGracePeriod=30s, and ShutdownGracePeriodCriticalPods=10s, during a node shutdown the first 20 seconds would be reserved for gracefully terminating normal pods, and the last 10 seconds would be reserved for terminating critical pods.
 	// Default: "10s"
 	// +optional
-	ShutdownGracePeriodCriticalPods metav1.Duration `json:"shutdownGracePeriodCritcalPods,omitempty"`
+	ShutdownGracePeriodCriticalPods metav1.Duration `json:"shutdownGracePeriodCriticalPods,omitempty"`
 }
 
 type KubeletAuthorizationMode string
