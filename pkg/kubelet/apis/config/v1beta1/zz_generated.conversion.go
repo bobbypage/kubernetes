@@ -350,6 +350,7 @@ func autoConvert_v1beta1_KubeletConfiguration_To_config_KubeletConfiguration(in 
 		return err
 	}
 	out.ShutdownGracePeriod = in.ShutdownGracePeriod
+	out.ShutdownGracePeriodCriticalPods = in.ShutdownGracePeriodCriticalPods
 	return nil
 }
 
@@ -501,6 +502,7 @@ func autoConvert_config_KubeletConfiguration_To_v1beta1_KubeletConfiguration(in 
 		return err
 	}
 	out.ShutdownGracePeriod = in.ShutdownGracePeriod
+	out.ShutdownGracePeriodCriticalPods = in.ShutdownGracePeriodCriticalPods
 	return nil
 }
 

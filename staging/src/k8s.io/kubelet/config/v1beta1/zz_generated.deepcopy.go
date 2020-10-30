@@ -302,6 +302,7 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
 		**out = **in
 	}
 	out.ShutdownGracePeriod = in.ShutdownGracePeriod
+	out.ShutdownGracePeriodCriticalPods = in.ShutdownGracePeriodCriticalPods
 	return
 }
 
