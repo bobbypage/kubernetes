@@ -7,7 +7,7 @@ go_library(
         "inhibit_linux.go",
         "inhibit_others.go",
     ],
-    importpath = "k8s.io/kubernetes/pkg/kubelet/systemd",
+    importpath = "k8s.io/kubernetes/pkg/kubelet/nodeshutdown/systemd",
     visibility = ["//visibility:public"],
     deps = select({
         "@io_bazel_rules_go//go/platform:android": [
@@ -20,20 +20,6 @@ go_library(
         ],
         "//conditions:default": [],
     }),
-)
-
-filegroup(
-    name = "package-srcs",
-    srcs = glob(["**"]),
-    tags = ["automanaged"],
-    visibility = ["//visibility:private"],
-)
-
-filegroup(
-    name = "all-srcs",
-    srcs = [":package-srcs"],
-    tags = ["automanaged"],
-    visibility = ["//visibility:public"],
 )
 
 go_test(
@@ -51,4 +37,18 @@ go_test(
         ],
         "//conditions:default": [],
     }),
+)
+
+filegroup(
+    name = "package-srcs",
+    srcs = glob(["**"]),
+    tags = ["automanaged"],
+    visibility = ["//visibility:private"],
+)
+
+filegroup(
+    name = "all-srcs",
+    srcs = [":package-srcs"],
+    tags = ["automanaged"],
+    visibility = ["//visibility:public"],
 )

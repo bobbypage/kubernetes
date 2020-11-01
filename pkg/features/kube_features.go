@@ -649,6 +649,11 @@ const (
 	// Add support for the HPA to scale based on metrics from individual containers
 	// in target pods
 	HPAContainerMetrics featuregate.Feature = "HPAContainerMetrics"
+
+	// owner: @bobbypage
+	// alpha: v1.20
+	// Adds support for kubelet to detect node shutdown and gracefully terminate pods prior to the node being shutdown.
+	GracefulNodeShutdown featuregate.Feature = "GracefulNodeShutdown"
 )
 
 func init() {
@@ -747,6 +752,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	WinDSR:                                         {Default: false, PreRelease: featuregate.Alpha},
 	DisableAcceleratorUsageMetrics:                 {Default: true, PreRelease: featuregate.Beta},
 	HPAContainerMetrics:                            {Default: false, PreRelease: featuregate.Alpha},
+	GracefulNodeShutdown:                           {Default: false, PreRelease: featuregate.Alpha},
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:

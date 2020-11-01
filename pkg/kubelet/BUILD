@@ -74,6 +74,7 @@ go_library(
         "//pkg/kubelet/metrics:go_default_library",
         "//pkg/kubelet/metrics/collectors:go_default_library",
         "//pkg/kubelet/network/dns:go_default_library",
+        "//pkg/kubelet/nodeshutdown:go_default_library",
         "//pkg/kubelet/nodestatus:go_default_library",
         "//pkg/kubelet/oom:go_default_library",
         "//pkg/kubelet/pleg:go_default_library",
@@ -160,12 +161,12 @@ go_library(
         "//vendor/k8s.io/utils/strings:go_default_library",
     ] + select({
         "@io_bazel_rules_go//go/platform:android": [
-            "//pkg/kubelet/systemd:go_default_library",
+            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
             "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
         "@io_bazel_rules_go//go/platform:linux": [
-            "//pkg/kubelet/systemd:go_default_library",
+            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
             "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
@@ -315,6 +316,7 @@ filegroup(
         "//pkg/kubelet/logs:all-srcs",
         "//pkg/kubelet/metrics:all-srcs",
         "//pkg/kubelet/network:all-srcs",
+        "//pkg/kubelet/nodeshutdown:all-srcs",
         "//pkg/kubelet/nodestatus:all-srcs",
         "//pkg/kubelet/oom:all-srcs",
         "//pkg/kubelet/pleg:all-srcs",
@@ -329,7 +331,6 @@ filegroup(
         "//pkg/kubelet/stats:all-srcs",
         "//pkg/kubelet/status:all-srcs",
         "//pkg/kubelet/sysctl:all-srcs",
-        "//pkg/kubelet/systemd:all-srcs",
         "//pkg/kubelet/token:all-srcs",
         "//pkg/kubelet/types:all-srcs",
         "//pkg/kubelet/util:all-srcs",

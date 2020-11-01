@@ -19,7 +19,6 @@ limitations under the License.
 package kubelet
 
 import (
-	"os"
 	"sync"
 	"time"
 
@@ -27,15 +26,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
-	"k8s.io/kubernetes/pkg/kubelet/systemd"
+	"k8s.io/kubernetes/pkg/kubelet/nodeshutdown/systemd"
 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/utils/integer"
 )
-
-type dBusCon struct {
-	*dbus.Conn
-	inhibitLock *os.File
-}
 
 func (kl *Kubelet) startShutdownInhibitor(getPodsFunc eviction.ActivePodsFunc, killPodFunc eviction.KillPodFunc) error {
 	shutdownGracePeriodDuration := kl.kubeletConfiguration.ShutdownGracePeriod.Duration
