@@ -46,10 +46,6 @@ func ValidateKubeletConfiguration(kc *kubeletconfig.KubeletConfiguration) error 
 	if err := localFeatureGate.SetFromMap(kc.FeatureGates); err != nil {
 		return err
 	}
-
-	//featureGates := fmt.Sprintf("porterdavid: featuregates: %v", localFeatureGate)
-	//panic(featureGates)
-
 	if kc.NodeLeaseDurationSeconds <= 0 {
 		allErrors = append(allErrors, fmt.Errorf("invalid configuration: NodeLeaseDurationSeconds must be greater than 0"))
 	}
