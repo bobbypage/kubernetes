@@ -2,20 +2,76 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = ["nodeshutdown_manager.go"],
+    srcs = [
+        "nodeshutdown_manager_linux.go",
+        "nodeshutdown_manager_others.go",
+    ],
     importpath = "k8s.io/kubernetes/pkg/kubelet/nodeshutdown",
     visibility = ["//visibility:public"],
-    deps = [
-        "//pkg/features:go_default_library",
-        "//pkg/kubelet/eviction:go_default_library",
-        "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
-        "//pkg/kubelet/types:go_default_library",
-        "//staging/src/k8s.io/api/core/v1:go_default_library",
-        "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
-        "//vendor/github.com/godbus/dbus/v5:go_default_library",
-        "//vendor/k8s.io/klog/v2:go_default_library",
-        "//vendor/k8s.io/utils/integer:go_default_library",
-    ],
+    deps = select({
+        "@io_bazel_rules_go//go/platform:aix": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:android": [
+            "//pkg/features:go_default_library",
+            "//pkg/kubelet/eviction:go_default_library",
+            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
+            "//pkg/kubelet/types:go_default_library",
+            "//staging/src/k8s.io/api/core/v1:go_default_library",
+            "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
+            "//vendor/github.com/godbus/dbus/v5:go_default_library",
+            "//vendor/k8s.io/klog/v2:go_default_library",
+            "//vendor/k8s.io/utils/integer:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:darwin": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:dragonfly": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:freebsd": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:illumos": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:ios": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:js": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "//pkg/features:go_default_library",
+            "//pkg/kubelet/eviction:go_default_library",
+            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
+            "//pkg/kubelet/types:go_default_library",
+            "//staging/src/k8s.io/api/core/v1:go_default_library",
+            "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
+            "//vendor/github.com/godbus/dbus/v5:go_default_library",
+            "//vendor/k8s.io/klog/v2:go_default_library",
+            "//vendor/k8s.io/utils/integer:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:nacl": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:netbsd": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:openbsd": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:plan9": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:solaris": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "@io_bazel_rules_go//go/platform:windows": [
+            "//pkg/kubelet/eviction:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 filegroup(

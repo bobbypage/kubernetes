@@ -798,13 +798,6 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		v1.NamespaceNodeLease,
 		util.SetNodeOwnerFunc(klet.heartbeatClient, string(klet.nodeName)))
 
-	klog.Infof("porterdavid: starting!")
-	//err = klet.startShutdownInhibitor(klet.GetActivePods, killPodNow(klet.podWorkers, kubeDeps.Recorder))
-
-	//if err != nil {
-	//klog.Infof("porterdavid: failure starting %v", err)
-	//}
-
 	klet.shutdownManager = nodeshutdown.NewManager(klet.GetActivePods, killPodNow(klet.podWorkers, kubeDeps.Recorder), kubeCfg.ShutdownGracePeriod.Duration, kubeCfg.ShutdownGracePeriodCriticalPods.Duration)
 
 	// Finally, put the most recent version of the config on the Kubelet, so

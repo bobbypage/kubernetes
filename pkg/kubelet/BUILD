@@ -23,8 +23,6 @@ go_library(
         "kubelet_node_status_windows.go",
         "kubelet_pods.go",
         "kubelet_resources.go",
-        "kubelet_shutdown_linux.go",
-        "kubelet_shutdown_others.go",
         "kubelet_volumes.go",
         "pod_container_deletor.go",
         "pod_sandbox_deleter.go",
@@ -161,13 +159,9 @@ go_library(
         "//vendor/k8s.io/utils/strings:go_default_library",
     ] + select({
         "@io_bazel_rules_go//go/platform:android": [
-            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
-            "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
         "@io_bazel_rules_go//go/platform:linux": [
-            "//pkg/kubelet/nodeshutdown/systemd:go_default_library",
-            "//vendor/github.com/godbus/dbus/v5:go_default_library",
             "//vendor/k8s.io/utils/net:go_default_library",
         ],
         "@io_bazel_rules_go//go/platform:windows": [
