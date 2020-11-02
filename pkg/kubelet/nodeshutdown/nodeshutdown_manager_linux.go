@@ -157,7 +157,7 @@ func (m *Manager) ShutdownStatus() error {
 	klog.V(0).Infof("porterdavid: shutdown status called")
 	if m.nodeShuttingDownNow {
 		klog.V(0).Infof("porterdavid: Shutdown status returning ERROR")
-		return fmt.Errorf("Node is shutting down")
+		return fmt.Errorf("node is shutting down")
 	}
 	return nil
 }
