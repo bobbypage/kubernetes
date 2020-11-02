@@ -32,12 +32,11 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
 	"k8s.io/kubernetes/pkg/kubelet/nodeshutdown/systemd"
 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
-	"k8s.io/utils/integer"
 )
 
 const (
-	NodeShutdownReason  = "Shutdown"
-	NodeShutdownMessage = "Node is shutting, evicting pods"
+	nodeShutdownReason  = "Shutdown"
+	nodeShutdownMessage = "Node is shutting, evicting pods"
 )
 
 var getSystemDbus = systemDbus
@@ -56,7 +55,6 @@ type Manager struct {
 	killPod eviction.KillPodFunc
 
 	shutdownGracePeriodRequested    time.Duration
-	shutdownGracePeriodAllocated    time.Duration
 	shutdownGracePeriodCriticalPods time.Duration
 
 	inhibitLock systemd.InhibitLock
@@ -108,12 +106,12 @@ func (m *Manager) Start() error {
 		return nil
 	}
 
-	maxInhibitDelay, err := m.dbusCon.CurrentInhibitDelay()
+	currentInhibitDelay, err := m.dbusCon.CurrentInhibitDelay()
 	if err != nil {
 		return err
 	}
 
-	if m.shutdownGracePeriodRequested > maxInhibitDelay {
+	if m.shutdownGracePeriodRequested > currentInhibitDelay {
 		// write config file
 		err := m.dbusCon.OverrideInhibitDelay(m.shutdownGracePeriodRequested)
 		if err != nil {
@@ -128,21 +126,17 @@ func (m *Manager) Start() error {
 		klog.V(0).Infof("porterdavid: reloaded logind")
 
 		// read the maxInhibitDelay again, hopefuly updated now
-		maxInhibitDelay, err = m.dbusCon.CurrentInhibitDelay()
+		updatedInhibitDelay, err := m.dbusCon.CurrentInhibitDelay()
 		if err != nil {
 			return err
 		}
+
+		if updatedInhibitDelay != m.shutdownGracePeriodRequested {
+			return fmt.Errorf("node shutdown manager was unable to update logind InhibitDelayMaxSec to %v (ShutdownGracePeriod), current value of InhibitDelayMaxSec (%v) is less than requested ShutdownGracePeriod", m.shutdownGracePeriodRequested, updatedInhibitDelay)
+		}
 	}
 
-	klog.V(0).Infof("porterdavid: inhibitDelay: %v shutDownConfig: %v", maxInhibitDelay, m.shutdownGracePeriodRequested)
-
-	m.shutdownGracePeriodAllocated = time.Duration(integer.Int64Min(maxInhibitDelay.Nanoseconds(), m.shutdownGracePeriodRequested.Nanoseconds()))
-
-	if m.shutdownGracePeriodAllocated < m.shutdownGracePeriodRequested {
-		klog.Warningf("Node shutdown manager was unable to use %v as shutdownGracePeriodRequested due to unable being to override logind inhibit config, using %v instead", m.shutdownGracePeriodRequested, m.shutdownGracePeriodAllocated)
-	}
-
-	klog.V(0).Infof("porterdavid: shutdownGracePeriodAllocated %v", m.shutdownGracePeriodAllocated)
+	klog.V(0).Infof("porterdavid: inhibitDelay: %v shutDownConfig: %v", currentInhibitDelay, m.shutdownGracePeriodRequested)
 
 	err = m.aquireInhibitLock()
 	if err != nil {
@@ -197,11 +191,7 @@ func (m *Manager) processShutdownEvent() error {
 	klog.V(0).Infof("porterdavid: processShutdownEvent")
 	activePods := m.getPods()
 
-	criticalPodGracePeriod := time.Duration(integer.Int64Max(0, integer.Int64Min(int64(m.shutdownGracePeriodCriticalPods), int64(m.shutdownGracePeriodAllocated-m.shutdownGracePeriodCriticalPods))))
-
-	nonCriticalPodGracePeriod := time.Duration(integer.Int64Max(0, int64(m.shutdownGracePeriodAllocated-criticalPodGracePeriod)))
-
-	klog.V(0).Infof("porterdavid: processShutdownEvent m.shutdownGracePeriodCriticalPods %v ; nonCriticalPodGracePeriod: %v", m.shutdownGracePeriodCriticalPods, nonCriticalPodGracePeriod)
+	nonCriticalPodGracePeriod := m.shutdownGracePeriodRequested - m.shutdownGracePeriodCriticalPods
 
 	var wg sync.WaitGroup
 	for _, pod := range activePods {
@@ -210,7 +200,7 @@ func (m *Manager) processShutdownEvent() error {
 
 			var gracePeriodOverride int64
 			if kubelettypes.IsCriticalPod(pod) {
-				gracePeriodOverride = int64(criticalPodGracePeriod.Seconds())
+				gracePeriodOverride = int64(m.shutdownGracePeriodCriticalPods.Seconds())
 				m.clock.Sleep(nonCriticalPodGracePeriod)
 			} else {
 				gracePeriodOverride = int64(nonCriticalPodGracePeriod.Seconds())
@@ -220,8 +210,8 @@ func (m *Manager) processShutdownEvent() error {
 
 			status := v1.PodStatus{
 				Phase:   v1.PodFailed,
-				Message: NodeShutdownMessage,
-				Reason:  NodeShutdownReason,
+				Message: nodeShutdownMessage,
+				Reason:  nodeShutdownReason,
 			}
 
 			err := m.killPod(pod, status, &gracePeriodOverride)
