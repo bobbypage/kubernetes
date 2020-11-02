@@ -169,9 +169,9 @@ func (bus *DBusCon) OverrideInhibitDelay(inhibitDelayMax time.Duration) error {
 	}
 
 	inhibitOverride := fmt.Sprintf(`# Kubelet logind override
-    [Login]
-    InhibitDelayMaxSec=%.0f
-    `, inhibitDelayMax.Seconds())
+[Login]
+InhibitDelayMaxSec=%.0f
+`, inhibitDelayMax.Seconds())
 
 	logindOverridePath := filepath.Join(logindConfigDirectory, kubeletLogindConf)
 	if err := ioutil.WriteFile(logindOverridePath, []byte(inhibitOverride), 0755); err != nil {
