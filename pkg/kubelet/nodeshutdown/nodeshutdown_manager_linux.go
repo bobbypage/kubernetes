@@ -204,7 +204,7 @@ func (m *Manager) processShutdownEvent() error {
 
 			err := m.killPod(pod, status, &gracePeriodOverride)
 			if err != nil {
-				klog.V(1).Infof("Shutdown manager had error killing pod %q: %v", pod.Name, err)
+				klog.V(1).Infof("Shutdown manager failed killing pod %q: %v", pod.Name, err)
 			}
 		}(pod)
 		wg.Add(1)

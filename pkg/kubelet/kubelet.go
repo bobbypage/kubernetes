@@ -1372,7 +1372,7 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 	err = kl.shutdownManager.Start()
 	if err != nil {
 		// The shutdown manager is not critical for kubelet, so log failure, but don't block Kubelet startup if there was a failure starting it.
-		klog.Errorf("failure node shutdown manager: %v", err)
+		klog.Errorf("failed starting node shutdown manager: %v", err)
 	}
 }
 
