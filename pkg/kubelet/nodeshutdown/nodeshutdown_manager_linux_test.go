@@ -168,7 +168,7 @@ func TestManager(t *testing.T) {
 
 			fakeShutdownChan := make(chan bool)
 			fakeDbus := &fakeDbus{currentInhibitDelay: tc.systemInhibitDelay, shutdownChan: fakeShutdownChan, overrideSystemInhibitDelay: tc.overrideSystemInhibitDelay}
-			getSystemDbus = func() (dbusShutdowner, error) {
+			getSystemDbus = func() (dbusInhibiter, error) {
 				return fakeDbus, nil
 			}
 			defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.GracefulNodeShutdown, true)()

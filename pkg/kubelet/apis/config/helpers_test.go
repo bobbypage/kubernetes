@@ -232,5 +232,7 @@ var (
 		"TypeMeta.Kind",
 		"VolumeStatsAggPeriod.Duration",
 		"VolumePluginDir",
+		"ShutdownGracePeriod.Duration",
+		"ShutdownGracePeriodCriticalPods.Duration",
 	)
 )

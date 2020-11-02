@@ -42,7 +42,7 @@ const (
 
 var getSystemDbus = systemDbus
 
-type dbusShutdowner interface {
+type dbusInhibiter interface {
 	CurrentInhibitDelay() (time.Duration, error)
 	InhibitShutdown() (systemd.InhibitLock, error)
 	ReleaseInhibitLock(lock systemd.InhibitLock) error
@@ -60,13 +60,13 @@ type Manager struct {
 	shutdownGracePeriodCriticalPods time.Duration
 
 	inhibitLock systemd.InhibitLock
-	dbusCon     dbusShutdowner
+	dbusCon     dbusInhibiter
 
 	clock               clock.Clock
 	nodeShuttingDownNow bool
 }
 
-func systemDbus() (dbusShutdowner, error) {
+func systemDbus() (dbusInhibiter, error) {
 	bus, err := dbus.SystemBus()
 	if err != nil {
 		return nil, err
