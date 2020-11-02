@@ -22,10 +22,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
-
-	"path/filepath"
 
 	"github.com/godbus/dbus/v5"
 	"k8s.io/klog/v2"
@@ -43,10 +42,12 @@ type dBusConnector interface {
 	Signal(ch chan<- *dbus.Signal)
 }
 
+// DBusCon has functions that can be used to interact with systemd and logind over dbus.
 type DBusCon struct {
 	SystemBus dBusConnector
 }
 
+// InhibitLock is a lock obtained after creating an systemd inhibitor by calling InhibitShutdown().
 type InhibitLock uint32
 
 // CurrentInhibitDelay returns the current delay inhibitor timeout value as configured in logind.conf(5).
@@ -72,8 +73,7 @@ func (bus *DBusCon) CurrentInhibitDelay() (time.Duration, error) {
 // see https://www.freedesktop.org/wiki/Software/systemd/inhibit/ for more details.
 func (bus *DBusCon) InhibitShutdown() (InhibitLock, error) {
 	obj := bus.SystemBus.Object(logindService, logindObject)
-	// TODO(bobbypage): we probably don't need sleep here...
-	what := "shutdown:sleep"
+	what := "shutdown"
 	who := "kubelet"
 	why := "Kubelet needs time to handle node shutdown"
 	mode := "delay"
@@ -157,15 +157,15 @@ func (bus *DBusCon) MonitorShutdown() (<-chan bool, error) {
 }
 
 const (
-	LogindConfigDirectory = "/etc/systemd/logind.conf.d/"
-	KubeletLogindConf     = "kubelet.conf"
+	logindConfigDirectory = "/etc/systemd/logind.conf.d/"
+	kubeletLogindConf     = "kubelet.conf"
 )
 
 // OverrideInhibitDelay writes a config file to logind overriding InhibitDelayMaxSec to the value desired.
 func (bus *DBusCon) OverrideInhibitDelay(inhibitDelayMax time.Duration) error {
-	err := os.MkdirAll(LogindConfigDirectory, 0755)
+	err := os.MkdirAll(logindConfigDirectory, 0755)
 	if err != nil {
-		return fmt.Errorf("failed creating %v directory: %v", LogindConfigDirectory, err)
+		return fmt.Errorf("failed creating %v directory: %v", logindConfigDirectory, err)
 	}
 
 	inhibitOverride := fmt.Sprintf(`# Kubelet logind override
@@ -173,7 +173,7 @@ func (bus *DBusCon) OverrideInhibitDelay(inhibitDelayMax time.Duration) error {
     InhibitDelayMaxSec=%.0f
     `, inhibitDelayMax.Seconds())
 
-	logindOverridePath := filepath.Join(LogindConfigDirectory, KubeletLogindConf)
+	logindOverridePath := filepath.Join(logindConfigDirectory, kubeletLogindConf)
 	if err := ioutil.WriteFile(logindOverridePath, []byte(inhibitOverride), 0755); err != nil {
 		return fmt.Errorf("failed writing logind shutdown inhibit override file %v: %v", logindOverridePath, err)
 	}
