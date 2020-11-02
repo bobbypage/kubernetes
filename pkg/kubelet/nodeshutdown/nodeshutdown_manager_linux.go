@@ -25,6 +25,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/clock"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/features"
@@ -39,6 +40,17 @@ const (
 	NodeShutdownMessage = "Node is shutting, evicting pods"
 )
 
+var getSystemDbus = systemDbus
+
+type dbusShutdowner interface {
+	CurrentInhibitDelay() (time.Duration, error)
+	InhibitShutdown() (systemd.InhibitLock, error)
+	ReleaseInhibitLock(lock systemd.InhibitLock) error
+	ReloadLogindConf() error
+	MonitorShutdown() (<-chan bool, error)
+	OverrideInhibitDelay(inhibitDelayMax time.Duration) error
+}
+
 type Manager struct {
 	getPods eviction.ActivePodsFunc
 	killPod eviction.KillPodFunc
@@ -48,9 +60,18 @@ type Manager struct {
 	shutdownGracePeriodCriticalPods time.Duration
 
 	inhibitLock systemd.InhibitLock
-	dbusCon     *systemd.DBusCon
+	dbusCon     dbusShutdowner
 
+	clock               clock.Clock
 	nodeShuttingDownNow bool
+}
+
+func systemDbus() (dbusShutdowner, error) {
+	bus, err := dbus.SystemBus()
+	if err != nil {
+		return nil, err
+	}
+	return &systemd.DBusCon{SystemBus: bus}, nil
 }
 
 func NewManager(getPodsFunc eviction.ActivePodsFunc, killPodFunc eviction.KillPodFunc, shutdownGracePeriodRequested, shutdownGracePeriodCriticalPods time.Duration) *Manager {
@@ -59,6 +80,7 @@ func NewManager(getPodsFunc eviction.ActivePodsFunc, killPodFunc eviction.KillPo
 		killPod:                         killPodFunc,
 		shutdownGracePeriodRequested:    shutdownGracePeriodRequested,
 		shutdownGracePeriodCriticalPods: shutdownGracePeriodCriticalPods,
+		clock:                           clock.RealClock{},
 	}
 }
 
@@ -73,11 +95,11 @@ func (m *Manager) Start() error {
 		klog.V(0).Info("shutdown duration was zero, skipping shutdown inhibit setup")
 	}
 
-	systemBus, err := dbus.SystemBus()
+	systemBus, err := getSystemDbus()
 	if err != nil {
 		return err
 	}
-	m.dbusCon = &systemd.DBusCon{DBusConnector: systemBus}
+	m.dbusCon = systemBus
 
 	klog.Infof("porterdavid: shutdown info: shutdownGracePeriodRequested: %v ; shutdownGracePeriodCriticalPods: %v", m.shutdownGracePeriodRequested, m.shutdownGracePeriodCriticalPods)
 
@@ -93,7 +115,7 @@ func (m *Manager) Start() error {
 
 	if m.shutdownGracePeriodRequested > maxInhibitDelay {
 		// write config file
-		err := systemd.OverrideSystemdInhibitDelay(m.shutdownGracePeriodRequested)
+		err := m.dbusCon.OverrideInhibitDelay(m.shutdownGracePeriodRequested)
 		if err != nil {
 			return err
 		}
@@ -117,7 +139,7 @@ func (m *Manager) Start() error {
 	m.shutdownGracePeriodAllocated = time.Duration(integer.Int64Min(maxInhibitDelay.Nanoseconds(), m.shutdownGracePeriodRequested.Nanoseconds()))
 
 	if m.shutdownGracePeriodAllocated < m.shutdownGracePeriodRequested {
-		klog.Warningf("Node shutdown manager was unable to use %v as shutdownGracePeriodRequested due to unable being to override logind inhibit config, using %v instead", m.shutdownGracePeriodAllocated)
+		klog.Warningf("Node shutdown manager was unable to use %v as shutdownGracePeriodRequested due to unable being to override logind inhibit config, using %v instead", m.shutdownGracePeriodRequested, m.shutdownGracePeriodAllocated)
 	}
 
 	klog.V(0).Infof("porterdavid: shutdownGracePeriodAllocated %v", m.shutdownGracePeriodAllocated)
@@ -175,7 +197,9 @@ func (m *Manager) processShutdownEvent() error {
 	klog.V(0).Infof("porterdavid: processShutdownEvent")
 	activePods := m.getPods()
 
-	nonCriticalPodGracePeriod := m.shutdownGracePeriodAllocated - m.shutdownGracePeriodCriticalPods
+	criticalPodGracePeriod := time.Duration(integer.Int64Max(0, integer.Int64Min(int64(m.shutdownGracePeriodCriticalPods), int64(m.shutdownGracePeriodAllocated-m.shutdownGracePeriodCriticalPods))))
+
+	nonCriticalPodGracePeriod := time.Duration(integer.Int64Max(0, int64(m.shutdownGracePeriodAllocated-criticalPodGracePeriod)))
 
 	klog.V(0).Infof("porterdavid: processShutdownEvent m.shutdownGracePeriodCriticalPods %v ; nonCriticalPodGracePeriod: %v", m.shutdownGracePeriodCriticalPods, nonCriticalPodGracePeriod)
 
@@ -186,8 +210,8 @@ func (m *Manager) processShutdownEvent() error {
 
 			var gracePeriodOverride int64
 			if kubelettypes.IsCriticalPod(pod) {
-				gracePeriodOverride = int64(m.shutdownGracePeriodCriticalPods.Seconds())
-				time.Sleep(nonCriticalPodGracePeriod)
+				gracePeriodOverride = int64(criticalPodGracePeriod.Seconds())
+				m.clock.Sleep(nonCriticalPodGracePeriod)
 			} else {
 				gracePeriodOverride = int64(nonCriticalPodGracePeriod.Seconds())
 			}
@@ -210,7 +234,6 @@ func (m *Manager) processShutdownEvent() error {
 	}
 	wg.Wait()
 
-	// TODO(porterdavid): release the lock and print smthing
 	klog.V(0).Infof("porterdavid: release inhibit lock start")
 	m.dbusCon.ReleaseInhibitLock(m.inhibitLock)
 	klog.V(0).Infof("porterdavid: release inhibit lock done")

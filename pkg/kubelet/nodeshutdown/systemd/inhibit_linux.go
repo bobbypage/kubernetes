@@ -37,14 +37,14 @@ const (
 	LogindInterface = "org.freedesktop.login1.Manager"
 )
 
-type DBusConnector interface {
+type dBusConnector interface {
 	Object(dest string, path dbus.ObjectPath) dbus.BusObject
 	AddMatchSignal(options ...dbus.MatchOption) error
 	Signal(ch chan<- *dbus.Signal)
 }
 
 type DBusCon struct {
-	DBusConnector
+	SystemBus dBusConnector
 }
 
 type InhibitLock uint32
@@ -52,7 +52,7 @@ type InhibitLock uint32
 // CurrentInhibitDelay returns the current delay inhibitor timeout value as configured in logind.conf(5).
 // see https://www.freedesktop.org/software/systemd/man/logind.conf.html for more details.
 func (bus *DBusCon) CurrentInhibitDelay() (time.Duration, error) {
-	obj := bus.Object(LogindService, LogindObject)
+	obj := bus.SystemBus.Object(LogindService, LogindObject)
 	res, err := obj.GetProperty(LogindInterface + ".InhibitDelayMaxUSec")
 	if err != nil {
 		return 0, fmt.Errorf("failed reading InhibitDelayMaxUSec property from logind: %v", err)
@@ -71,7 +71,7 @@ func (bus *DBusCon) CurrentInhibitDelay() (time.Duration, error) {
 // InhibitShutdown creates an systemd inhibitor by calling logind's Inhibt() and returns the inhibitor lock
 // see https://www.freedesktop.org/wiki/Software/systemd/inhibit/ for more details.
 func (bus *DBusCon) InhibitShutdown() (InhibitLock, error) {
-	obj := bus.Object(LogindService, LogindObject)
+	obj := bus.SystemBus.Object(LogindService, LogindObject)
 	// TODO(bobbypage): we probably don't need sleep here...
 	what := "shutdown:sleep"
 	who := "kubelet"
@@ -108,7 +108,7 @@ func (bus *DBusCon) ReloadLogindConf() error {
 	systemdObject := "/org/freedesktop/systemd1"
 	systemdInterface := "org.freedesktop.systemd1.Manager"
 
-	obj := bus.Object(systemdService, dbus.ObjectPath(systemdObject))
+	obj := bus.SystemBus.Object(systemdService, dbus.ObjectPath(systemdObject))
 	unit := "systemd-logind.service"
 	who := "all"
 	var signal int32 = 1 // SIGHUP
@@ -124,14 +124,14 @@ func (bus *DBusCon) ReloadLogindConf() error {
 // MonitorShutdown detects the a node shutdown by watching for "PrepareForShutdown" logind events.
 // see https://www.freedesktop.org/wiki/Software/systemd/inhibit/ for more details.
 func (bus *DBusCon) MonitorShutdown() (<-chan bool, error) {
-	err := bus.AddMatchSignal(dbus.WithMatchInterface(LogindInterface), dbus.WithMatchMember("PrepareForShutdown"), dbus.WithMatchObjectPath("/org/freedesktop/login1"))
+	err := bus.SystemBus.AddMatchSignal(dbus.WithMatchInterface(LogindInterface), dbus.WithMatchMember("PrepareForShutdown"), dbus.WithMatchObjectPath("/org/freedesktop/login1"))
 
 	if err != nil {
 		return nil, err
 	}
 
 	busChan := make(chan *dbus.Signal, 1)
-	bus.Signal(busChan)
+	bus.SystemBus.Signal(busChan)
 
 	shutdownChan := make(chan bool, 1)
 
@@ -161,8 +161,8 @@ const (
 	KubeletLogindConf     = "kubelet.conf"
 )
 
-// OverrideSystemdInhibitDelay writes a config file to logind overriding InhibitDelayMaxSec to the value desired.
-func OverrideSystemdInhibitDelay(inhibitDelayMax time.Duration) error {
+// OverrideInhibitDelay writes a config file to logind overriding InhibitDelayMaxSec to the value desired.
+func (bus *DBusCon) OverrideInhibitDelay(inhibitDelayMax time.Duration) error {
 	err := os.MkdirAll(LogindConfigDirectory, 0755)
 	if err != nil {
 		return fmt.Errorf("failed creating %v directory: %v", LogindConfigDirectory, err)

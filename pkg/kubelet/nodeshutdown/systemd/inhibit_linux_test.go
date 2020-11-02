@@ -100,7 +100,7 @@ func TestCurrentInhibitDelay(t *testing.T) {
 	thirtySeconds := time.Duration(30) * time.Second
 
 	bus := DBusCon{
-		DBusConnector: &fakeSystemDBus{
+		SystemBus: &fakeSystemDBus{
 			fakeDBusObject: &fakeDBusObject{
 				properties: map[string]interface{}{
 					"org.freedesktop.login1.Manager.InhibitDelayMaxUSec": uint64(thirtySeconds / time.Microsecond),
@@ -118,7 +118,7 @@ func TestInhibitShutdown(t *testing.T) {
 	var fakeFd uint32 = 42
 
 	bus := DBusCon{
-		DBusConnector: &fakeSystemDBus{
+		SystemBus: &fakeSystemDBus{
 			fakeDBusObject: &fakeDBusObject{
 				bodyValue: fakeFd,
 			},
@@ -132,7 +132,7 @@ func TestInhibitShutdown(t *testing.T) {
 
 func TestReloadLogindConf(t *testing.T) {
 	bus := DBusCon{
-		DBusConnector: &fakeSystemDBus{
+		SystemBus: &fakeSystemDBus{
 			fakeDBusObject: &fakeDBusObject{},
 		},
 	}
@@ -140,7 +140,6 @@ func TestReloadLogindConf(t *testing.T) {
 }
 
 func TestMonitorShutdown(t *testing.T) {
-
 	var tests = []struct {
 		desc           string
 		shutdownActive bool
@@ -159,7 +158,7 @@ func TestMonitorShutdown(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			fakeSystemBus := &fakeSystemDBus{}
 			bus := DBusCon{
-				DBusConnector: fakeSystemBus,
+				SystemBus: fakeSystemBus,
 			}
 
 			outChan, err := bus.MonitorShutdown()
@@ -183,5 +182,4 @@ func TestMonitorShutdown(t *testing.T) {
 			<-done
 		})
 	}
-
 }
