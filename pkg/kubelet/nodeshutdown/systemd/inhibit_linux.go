@@ -32,9 +32,9 @@ import (
 )
 
 const (
-	LogindService   = "org.freedesktop.login1"
-	LogindObject    = dbus.ObjectPath("/org/freedesktop/login1")
-	LogindInterface = "org.freedesktop.login1.Manager"
+	logindService   = "org.freedesktop.login1"
+	logindObject    = dbus.ObjectPath("/org/freedesktop/login1")
+	logindInterface = "org.freedesktop.login1.Manager"
 )
 
 type dBusConnector interface {
@@ -52,8 +52,8 @@ type InhibitLock uint32
 // CurrentInhibitDelay returns the current delay inhibitor timeout value as configured in logind.conf(5).
 // see https://www.freedesktop.org/software/systemd/man/logind.conf.html for more details.
 func (bus *DBusCon) CurrentInhibitDelay() (time.Duration, error) {
-	obj := bus.SystemBus.Object(LogindService, LogindObject)
-	res, err := obj.GetProperty(LogindInterface + ".InhibitDelayMaxUSec")
+	obj := bus.SystemBus.Object(logindService, logindObject)
+	res, err := obj.GetProperty(logindInterface + ".InhibitDelayMaxUSec")
 	if err != nil {
 		return 0, fmt.Errorf("failed reading InhibitDelayMaxUSec property from logind: %v", err)
 	}
@@ -71,7 +71,7 @@ func (bus *DBusCon) CurrentInhibitDelay() (time.Duration, error) {
 // InhibitShutdown creates an systemd inhibitor by calling logind's Inhibt() and returns the inhibitor lock
 // see https://www.freedesktop.org/wiki/Software/systemd/inhibit/ for more details.
 func (bus *DBusCon) InhibitShutdown() (InhibitLock, error) {
-	obj := bus.SystemBus.Object(LogindService, LogindObject)
+	obj := bus.SystemBus.Object(logindService, logindObject)
 	// TODO(bobbypage): we probably don't need sleep here...
 	what := "shutdown:sleep"
 	who := "kubelet"
@@ -124,7 +124,7 @@ func (bus *DBusCon) ReloadLogindConf() error {
 // MonitorShutdown detects the a node shutdown by watching for "PrepareForShutdown" logind events.
 // see https://www.freedesktop.org/wiki/Software/systemd/inhibit/ for more details.
 func (bus *DBusCon) MonitorShutdown() (<-chan bool, error) {
-	err := bus.SystemBus.AddMatchSignal(dbus.WithMatchInterface(LogindInterface), dbus.WithMatchMember("PrepareForShutdown"), dbus.WithMatchObjectPath("/org/freedesktop/login1"))
+	err := bus.SystemBus.AddMatchSignal(dbus.WithMatchInterface(logindInterface), dbus.WithMatchMember("PrepareForShutdown"), dbus.WithMatchObjectPath("/org/freedesktop/login1"))
 
 	if err != nil {
 		return nil, err

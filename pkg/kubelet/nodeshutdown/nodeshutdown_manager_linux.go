@@ -51,17 +51,17 @@ type dbusInhibiter interface {
 }
 
 type Manager struct {
-	getPods eviction.ActivePodsFunc
-	killPod eviction.KillPodFunc
-
 	shutdownGracePeriodRequested    time.Duration
 	shutdownGracePeriodCriticalPods time.Duration
 
-	inhibitLock systemd.InhibitLock
-	dbusCon     dbusInhibiter
+	getPods eviction.ActivePodsFunc
+	killPod eviction.KillPodFunc
 
-	clock               clock.Clock
+	dbusCon             dbusInhibiter
 	nodeShuttingDownNow bool
+	inhibitLock         systemd.InhibitLock
+
+	clock clock.Clock
 }
 
 func systemDbus() (dbusInhibiter, error) {
