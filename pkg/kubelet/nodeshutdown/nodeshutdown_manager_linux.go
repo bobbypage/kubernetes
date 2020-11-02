@@ -16,6 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package nodeshutdown can watch for node level shutdown events and trigger graceful termination of pods running on the node prior to a system shutdown.
 package nodeshutdown
 
 import (
@@ -50,6 +51,7 @@ type dbusInhibiter interface {
 	OverrideInhibitDelay(inhibitDelayMax time.Duration) error
 }
 
+// Manager has functions that can be used to interact with the Node Shutdown Manager.
 type Manager struct {
 	shutdownGracePeriodRequested    time.Duration
 	shutdownGracePeriodCriticalPods time.Duration
@@ -72,6 +74,7 @@ func systemDbus() (dbusInhibiter, error) {
 	return &systemd.DBusCon{SystemBus: bus}, nil
 }
 
+// NewManager returns a new node shutdown manager.
 func NewManager(getPodsFunc eviction.ActivePodsFunc, killPodFunc eviction.KillPodFunc, shutdownGracePeriodRequested, shutdownGracePeriodCriticalPods time.Duration) *Manager {
 	return &Manager{
 		getPods:                         getPodsFunc,
@@ -82,15 +85,13 @@ func NewManager(getPodsFunc eviction.ActivePodsFunc, killPodFunc eviction.KillPo
 	}
 }
 
+// Start starts the node shutdown manager and will start watching the node for shutdown events.
 func (m *Manager) Start() error {
 	if !utilfeature.DefaultFeatureGate.Enabled(features.GracefulNodeShutdown) {
-		klog.V(0).Infof("porterdavid feature gate disabled")
 		return nil
 	}
-
-	klog.V(0).Infof("porterdavid shutdownGracePeriodRequested: %v   shutdownGracePeriodCriticalPods: %v", m.shutdownGracePeriodRequested, m.shutdownGracePeriodCriticalPods)
 	if m.shutdownGracePeriodRequested == 0 {
-		klog.V(0).Info("shutdown duration was zero, skipping shutdown inhibit setup")
+		return nil
 	}
 
 	systemBus, err := getSystemDbus()
@@ -99,33 +100,24 @@ func (m *Manager) Start() error {
 	}
 	m.dbusCon = systemBus
 
-	klog.Infof("porterdavid: shutdown info: shutdownGracePeriodRequested: %v ; shutdownGracePeriodCriticalPods: %v", m.shutdownGracePeriodRequested, m.shutdownGracePeriodCriticalPods)
-
-	if m.shutdownGracePeriodRequested == 0 {
-		klog.V(0).Info("shutdown duration was zero, skipping shutdown inhibit setup")
-		return nil
-	}
-
 	currentInhibitDelay, err := m.dbusCon.CurrentInhibitDelay()
 	if err != nil {
 		return err
 	}
 
+	// If the logind's InhibitDelayMaxUSec as configured in (logind.conf) is less than shutdownGracePeriodRequested, attempt to update the value to shutdownGracePeriodRequested.
 	if m.shutdownGracePeriodRequested > currentInhibitDelay {
-		// write config file
 		err := m.dbusCon.OverrideInhibitDelay(m.shutdownGracePeriodRequested)
 		if err != nil {
 			return err
 		}
-		klog.V(0).Infof("porterdavid: writing inhibit file")
 
 		err = m.dbusCon.ReloadLogindConf()
 		if err != nil {
 			return err
 		}
-		klog.V(0).Infof("porterdavid: reloaded logind")
 
-		// read the maxInhibitDelay again, hopefuly updated now
+		// Read the current inhibitDelay again, if the override was successful, currentInhibitDelay will be equal to shutdownGracePeriodRequested.
 		updatedInhibitDelay, err := m.dbusCon.CurrentInhibitDelay()
 		if err != nil {
 			return err
@@ -135,8 +127,6 @@ func (m *Manager) Start() error {
 			return fmt.Errorf("node shutdown manager was unable to update logind InhibitDelayMaxSec to %v (ShutdownGracePeriod), current value of InhibitDelayMaxSec (%v) is less than requested ShutdownGracePeriod", m.shutdownGracePeriodRequested, updatedInhibitDelay)
 		}
 	}
-
-	klog.V(0).Infof("porterdavid: inhibitDelay: %v shutDownConfig: %v", currentInhibitDelay, m.shutdownGracePeriodRequested)
 
 	err = m.aquireInhibitLock()
 	if err != nil {
@@ -152,7 +142,7 @@ func (m *Manager) Start() error {
 		for {
 			select {
 			case isShuttingDown := <-events:
-				klog.V(0).Infof("porterdavid: Shutdown manager detected new shutdown event, isNodeShuttingDownNow: %t", isShuttingDown)
+				klog.V(1).Infof("Shutdown manager detected new shutdown event, isNodeShuttingDownNow: %t", isShuttingDown)
 				m.nodeShuttingDownNow = isShuttingDown
 				if isShuttingDown {
 					m.processShutdownEvent()
@@ -165,19 +155,6 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-func (m *Manager) ShutdownStatus() error {
-	if !utilfeature.DefaultFeatureGate.Enabled(features.GracefulNodeShutdown) {
-		return nil
-	}
-
-	klog.V(0).Infof("porterdavid: shutdown status called")
-	if m.nodeShuttingDownNow {
-		klog.V(0).Infof("porterdavid: Shutdown status returning ERROR")
-		return fmt.Errorf("node is shutting down")
-	}
-	return nil
-}
-
 func (m *Manager) aquireInhibitLock() error {
 	lock, err := m.dbusCon.InhibitShutdown()
 	if err != nil {
@@ -187,8 +164,19 @@ func (m *Manager) aquireInhibitLock() error {
 	return nil
 }
 
+func (m *Manager) ShutdownStatus() error {
+	if !utilfeature.DefaultFeatureGate.Enabled(features.GracefulNodeShutdown) {
+		return nil
+	}
+
+	if m.nodeShuttingDownNow {
+		return fmt.Errorf("node is shutting down")
+	}
+	return nil
+}
+
 func (m *Manager) processShutdownEvent() error {
-	klog.V(0).Infof("porterdavid: processShutdownEvent")
+	klog.V(1).Infof("Shutdown manager processing shutdown event")
 	activePods := m.getPods()
 
 	nonCriticalPodGracePeriod := m.shutdownGracePeriodRequested - m.shutdownGracePeriodCriticalPods
@@ -206,7 +194,7 @@ func (m *Manager) processShutdownEvent() error {
 				gracePeriodOverride = int64(nonCriticalPodGracePeriod.Seconds())
 			}
 
-			klog.V(0).Infof("porterdavid: killing pod %v gracePeriod: %v", pod.Name, gracePeriodOverride)
+			klog.V(1).Infof("Shutdown manager killing pod %q with gracePeriod: %v", pod.Name, gracePeriodOverride)
 
 			status := v1.PodStatus{
 				Phase:   v1.PodFailed,
@@ -216,17 +204,15 @@ func (m *Manager) processShutdownEvent() error {
 
 			err := m.killPod(pod, status, &gracePeriodOverride)
 			if err != nil {
-				klog.V(0).Infof("error killing pod %q: %v", pod.Name, err)
+				klog.V(1).Infof("Shutdown manager had error killing pod %q: %v", pod.Name, err)
 			}
-			klog.V(0).Infof("porterdavid: done killing pod %v", pod.Name)
 		}(pod)
 		wg.Add(1)
 	}
 	wg.Wait()
 
-	klog.V(0).Infof("porterdavid: release inhibit lock start")
 	m.dbusCon.ReleaseInhibitLock(m.inhibitLock)
-	klog.V(0).Infof("porterdavid: release inhibit lock done")
+	klog.V(1).Infof("Shutdown manager completed processing shutdown event, node will shutdown shortly")
 
 	return nil
 }
