@@ -35,6 +35,7 @@ import (
 	"k8s.io/klog/v2"
 	statsapi "k8s.io/kubernetes/pkg/kubelet/apis/stats/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
+	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 	"k8s.io/kubernetes/pkg/kubelet/server/stats"
@@ -499,11 +500,48 @@ func (p *criStatsProvider) addProcessStats(
 	cs *statsapi.ContainerStats,
 ) {
 	// try get process stats from cadvisor only.
-	info := getCadvisorPodInfoFromPodUID(podUID, allInfos)
-	if info != nil {
-		ps.ProcessStats = cadvisorInfoToProcessStats(info)
-		return
+	//info := getCadvisorPodInfoFromPodUID(podUID, allInfos)
+	//if info != nil {
+	//ps.ProcessStats = cadvisorInfoToProcessStats(info)
+	//return
+	//}
+
+	infos := davidgetCadvisorPodInfoFromPodUID(podUID, allInfos)
+
+	var total uint64
+	for _, info := range infos {
+		psContainer := cadvisorInfoToProcessStats(info)
+		if psContainer != nil {
+			total += *psContainer.ProcessCount
+		}
 	}
+	//cadvisorInfoToProcessStats(info)
+	//num := cstat.Processes.ProcessCount
+	ps.ProcessStats = &statsapi.ProcessStats{ProcessCount: uint64Ptr(total)}
+
+}
+
+func davidgetCadvisorPodInfoFromPodUID(podUID types.UID, infos map[string]cadvisorapiv2.ContainerInfo) []*cadvisorapiv2.ContainerInfo {
+	var containerInfos []*cadvisorapiv2.ContainerInfo
+
+	for key, info := range infos {
+		infoCpy := info
+		if cm.IsSystemdStyleName(key) {
+			// Convert to internal cgroup name and take the last component only.
+			internalCgroupName := cm.ParseSystemdToCgroupName(key)
+			key = internalCgroupName[len(internalCgroupName)-1]
+		} else {
+			// Take last component only.
+			//key = path.Base(key)
+		}
+		if strings.Contains(key, string(podUID)) {
+			containerInfos = append(containerInfos, &infoCpy)
+		}
+		//if cm.GetPodCgroupNameSuffix(podUID) == key {
+		//return &info
+		//}
+	}
+	return containerInfos
 }
 
 func (p *criStatsProvider) makeContainerStats(
