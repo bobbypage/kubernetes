@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -781,6 +782,12 @@ func parseInstanceMetadata(str string) map[string]string {
 			continue
 		}
 		metaPath := kp[1]
+
+		klog.Infof("porterdavid: metapath used to be %v", metaPath)
+		metaPath = strings.Replace(metaPath, "/go", os.Getenv("GOPATH"), -1)
+		metaPath = strings.Replace(metaPath, "/workspace", path.Join(os.Getenv("GOPATH"), "/src/k8s.io/"), -1)
+		klog.Infof("porterdavid: metapath now is be %v", metaPath)
+
 		if *imageConfigDir != "" {
 			metaPath = filepath.Join(*imageConfigDir, metaPath)
 		}
